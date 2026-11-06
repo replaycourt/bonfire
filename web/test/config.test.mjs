@@ -78,6 +78,17 @@ test('the staging deployment is ready to play: its gas pool and its code hash ar
   assert.equal(b58decode(stage.codeHash).length, 32, 'a base58 sha256')
 })
 
+test('the final deployment is the default and complete: its gas pool, the committed wasm hash, five labelled bots', () => {
+  const final = DEPLOYMENTS.final
+  assert.equal(pickDeployment('').contract, 'bonfire-coin.testnet')
+  assert.equal(final.gasKeys.length, 8)
+  const pinned = readFileSync(join(WEB, '..', 'contract', 'WASM_SHA256'), 'utf8').trim()
+  assert.equal(Buffer.from(b58decode(final.codeHash)).toString('hex'), pinned, 'codeHash is contract/WASM_SHA256 in base58')
+  assert.deepEqual(Object.values(final.bots).sort(), ['demo-bot-early-a', 'demo-bot-early-b', 'demo-bot-idle', 'demo-bot-late', 'demo-bot-steady'])
+  const stageKeys = new Set(DEPLOYMENTS.stage.gasKeys.map((k) => k.public_key))
+  assert.ok(final.gasKeys.every((k) => !stageKeys.has(k.public_key)), 'its own keys, not staging ones')
+})
+
 test('every deployment labels its demo bots: implicit accounts, each called demo-bot-something', () => {
   for (const [name, d] of Object.entries(DEPLOYMENTS)) {
     assert.equal(typeof d.bots, 'object', `${name}: a bots map, empty until deployment`)

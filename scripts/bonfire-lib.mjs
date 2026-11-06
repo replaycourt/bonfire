@@ -4,7 +4,8 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Signer, assertTestnet, hex, implicitAccount, keyFromNearString, newKey, nearPublicKey, nearSecretKey, sign, view } from './near-lite.mjs'
+import { Signer, assertTestnet, hex, implicitAccount, keyFromNearString, keyFromSeed, newKey, nearPublicKey, nearSecretKey, sign, view } from './near-lite.mjs'
+import { DEPLOYMENTS } from '../web/js/config.js'
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 export const SECRETS = join(ROOT, '.secrets')
@@ -58,6 +59,14 @@ export class Player {
     return new Player(label, newKey())
   }
 
+  static fromSeedHex(label, seedHex) {
+    return new Player(label, keyFromSeed(Buffer.from(seedHex, 'hex')))
+  }
+
+  get seedHex() {
+    return hex(this.key.seed)
+  }
+
   get publicKey() {
     return nearPublicKey(this.key)
   }
@@ -66,10 +75,14 @@ export class Player {
     return nearSecretKey(this.key)
   }
 
-  /** The signed `act` arguments for `action` (an object), with the next nonce. */
+  /**
+   * The signed `act` arguments for `action` (an object). The nonce is time-based, so it stays above
+   * every earlier one across runs and machines: max(now in ms, last nonce + 1).
+   */
   async signed(contract, action, nonce = null) {
     if (this.nonce === null) this.nonce = (await view(contract, 'holder', { account_id: this.account })).nonce
-    const n = nonce ?? ++this.nonce
+    const n = nonce ?? Math.max(Date.now(), this.nonce + 1)
+    if (n > this.nonce) this.nonce = n
     const text = JSON.stringify(action)
     const message = `bonfire:v1:${contract}:${n}:${text}`
     return { player_pubkey: this.account, nonce: n, action: text, signature: hex(sign(this.key, Buffer.from(message, 'utf8'))) }
@@ -93,23 +106,59 @@ export function throwEvent(r) {
 
 // ---- the relay: function-call keys of the gas account ---------------------------------------------
 
+/**
+ * The relay keys of `contract`: the git-ignored .secrets/gas-pool-<contract>.json if it exists, else
+ * the public function-call keys the page uses (web/js/config.js). [{account, private_key}]
+ */
+export function relayKeys(contract) {
+  if (existsSync(poolFile(contract))) return readJson(poolFile(contract)).filter((k) => k.contract === contract)
+  const d = Object.values(DEPLOYMENTS).find((x) => x.contract === contract)
+  return d ? d.gasKeys.map((k) => ({ account: d.gasAccount, private_key: k.private_key })) : []
+}
+
 export class Relay {
-  constructor(contract) {
+  /** The keys are shared with the page, so every transaction reads its key's nonce afresh. */
+  constructor(contract, { keys } = {}) {
     assertTestnet(contract)
     this.contract = contract
-    const pool = readJson(poolFile(contract)).filter((k) => k.contract === contract)
-    if (!pool.length) throw new Error(`no gas keys for ${contract} in ${poolFile(contract)}`)
-    this.signers = pool.map((k) => new Signer(k.account, keyFromNearString(k.private_key)))
-    this.next = 0
+    const pool = keys ?? relayKeys(contract)
+    if (!pool.length) throw new Error(`no gas keys for ${contract} (neither .secrets/gas-pool-${contract}.json nor web/js/config.js)`)
+    this.signers = pool.map((k) => new Signer(k.account, keyFromNearString(k.private_key), { shared: true }))
+    this.dead = new Set()
   }
 
-  pick(i) {
-    return this.signers[(i ?? this.next++) % this.signers.length]
+  /**
+   * The key in `slot`, or a random live one not in `avoid`: spreading the load keeps clashes with
+   * the page rare.
+   */
+  pick(slot, avoid = new Set()) {
+    if (slot !== undefined) return this.signers[slot % this.signers.length]
+    const live = this.signers.filter((s) => !this.dead.has(s))
+    if (!live.length) throw new Error('every gas key is out of allowance or gone')
+    const fresh = live.filter((s) => !avoid.has(s))
+    const from = fresh.length ? fresh : live
+    return from[Math.floor(Math.random() * from.length)]
   }
 
-  /** Calls `method` (act, settle or collect) through a gas key, 30 Tgas attached. */
+  /**
+   * Calls `method` (act, settle or collect) through a gas key, 30 Tgas attached. A nonce clash the
+   * key's own retry could not resolve moves to another key; a key out of allowance is dropped.
+   */
   async call(method, args, { slot, gas = 30n * TGAS } = {}) {
-    return this.pick(slot).call(this.contract, method, args, { gas })
+    let last
+    const tried = new Set()
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const s = this.pick(attempt === 0 ? slot : undefined, tried)
+      tried.add(s)
+      try {
+        return await s.call(this.contract, method, args, { gas })
+      } catch (e) {
+        last = e
+        if (/NotEnoughAllowance|AccessKeyDoesNotExist/.test(e.message)) this.dead.add(s)
+        else if (!/InvalidNonce/.test(e.message)) throw e
+      }
+    }
+    throw last
   }
 
   async act(player, action, { slot, nonce } = {}) {

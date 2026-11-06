@@ -202,10 +202,15 @@ export async function accessKeys(account, finality = 'final') {
 }
 
 export class Signer {
-  constructor(accountId, key) {
+  /**
+   * `shared`: the key is used by others too (gas keys shared with the page), so its nonce is read
+   * fresh before every transaction instead of counted locally.
+   */
+  constructor(accountId, key, { shared = false } = {}) {
     this.accountId = accountId
     this.key = key
     this.nonce = null
+    this.shared = shared
   }
 
   async call(receiverId, method, args, { gas = 30_000_000_000_000n, deposit = 0n } = {}) {
@@ -217,8 +222,12 @@ export class Signer {
     return this.send(receiverId, [transferAction(yocto)])
   }
 
-  async send(receiverId, actions) {
-    if (this.nonce === null) {
+  /**
+   * Signs and sends one transaction. On InvalidNonce (another user of the key got there first) it
+   * reads the key's nonce afresh and tries once more; a second InvalidNonce is thrown.
+   */
+  async send(receiverId, actions, { retryNonce = true } = {}) {
+    if (this.nonce === null || this.shared) {
       const k = await rpc('query', {
         request_type: 'view_access_key',
         finality: 'optimistic',
@@ -237,8 +246,12 @@ export class Signer {
     try {
       res = await rpc('send_tx', { signed_tx_base64: signed.toString('base64'), wait_until: 'EXECUTED_OPTIMISTIC' })
     } catch (e) {
-      // An invalid transaction (bad nonce and the like) never reached the chain: forget the nonce.
+      // An invalid transaction never reached the chain: forget the nonce.
       if (/InvalidTxError|InvalidNonce/.test(e.message)) this.nonce = null
+      if (retryNonce && /InvalidNonce/.test(e.message)) {
+        console.error(`[${stamp()}] ${this.accountId}: nonce taken by another user of the key; reading it afresh and trying once more`)
+        return this.send(receiverId, actions, { retryNonce: false })
+      }
       throw e
     }
     return { ...summarise(res), sentMs, doneMs: Date.now() }

@@ -5,11 +5,21 @@
 // relayed through the gas account's function-call keys; `settle` and `collect` go through the
 // same keys.
 //
-//   node scripts/bots.mjs <contract> --nights <N> [--seed <s>] [--always] [--smoke <k,...>]
-//                         [--cold <k,...>] [--quiet <k,...>]
+//   node scripts/bots.mjs <contract> (--nights <N> | --minutes <M>) [--seed <s>] [--always]
+//                         [--smoke <k,...>] [--cold <k,...>] [--quiet <k,...>] [--dry-run]
+//
+// The bot keys: the environment variable BONFIRE_BOTS (a JSON array of 64-character hex seeds,
+// each the key of a bot labelled in web/js/config.js; .github/workflows/fire.yml passes the secret
+// of that name), else the git-ignored .secrets/bots-<contract>.json. With neither the script logs
+// "no bot keys, nothing to do" and exits 0. The relay keys: .secrets/gas-pool-<contract>.json, else
+// the public function-call keys in web/js/config.js. They are shared with the page: every
+// transaction reads its key's nonce afresh, picks a random key, and on InvalidNonce reads the nonce
+// again and retries once, then tries another key.
 //
 // --nights N   play N nights, then settle, collect and exit (never runs forever)
-// --seed s     the bots' random streams (default 1)
+// --minutes M  as many nights as fit in M minutes (1 to 350)
+// --seed s     the bots' random streams (default: the start time)
+// --dry-run    read the chain and print the gas pool and what each bot would do; send nothing
 // --always     every bot plays every night it may (drops the 85-90 % chance to play)
 // --smoke k    on the run's k-th night the bots under-throw on purpose so it SMOKES: the early bots
 //              throw a quarter of their usual wood, the steady and late bots hold back
@@ -26,10 +36,12 @@
 //   (late_lit > 0) or the pile is at 80 % of the target and 100 EMBER close the gap; it sends at
 //   least 12 s before the night ends, so that the transaction lands on the night it names;
 // - demo-bot-idle: never throws.
+import { appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { tgas, view } from './near-lite.mjs'
-import { BP, ROOT, Relay, ember, loadBots, readJson, sleep, throwEvent } from './bonfire-lib.mjs'
+import { accessKeys, assertTestnet, keyFromNearString, near, nearPublicKey, tgas, view, viewAccount } from './near-lite.mjs'
+import { BP, Player, ROOT, Relay, botsFile, ember, loadBots, readJson, relayKeys, sleep, throwEvent } from './bonfire-lib.mjs'
+import { DEPLOYMENTS } from '../web/js/config.js'
 
 export const BEHAVIOURS = {
   'demo-bot-early-a': { logic: 'plain', p: 0.9, t: [0.0, 0.2], f: [0.75, 1.25] },
@@ -102,7 +114,8 @@ export class Runner {
    * relay: Relay; bots: Player[] in params.json order; cfg: config().config; genesisMs: config().genesis_ms.
    * hooks.step(step) runs after every transaction; hooks.extra(i, n, runner) adds events to a night.
    */
-  constructor({ relay, bots, cfg, genesisMs, sizes, seed = 1, always = false, smoke, cold, quiet, hooks = {}, log = console.log }) {
+  constructor({ relay, bots, cfg, genesisMs, sizes, seed = 1, always = false, smoke, cold, quiet, hooks = {}, log = console.log, checkAudit = false }) {
+    this.checkAudit = checkAudit
     this.relay = relay
     this.bots = bots
     this.cfg = cfg
@@ -119,7 +132,6 @@ export class Runner {
     this.synced = false
     this.rngs = bots.map((_, i) => mulberry32(seed * 7919 + i * 104729 + 1))
     this.steps = []
-    this.slot = Object.fromEntries(bots.map((b, i) => [b.account, i]))
   }
 
   nightStart(n) {
@@ -174,9 +186,10 @@ export class Runner {
     for (let tries = 0; tries < 8; tries++) {
       const st = await this.state()
       if (st.nights_due === 0) return
-      const r = await this.relay.call('settle', {}, { slot: 6 })
+      const r = await this.relay.call('settle', {})
       const v = r.value ?? {}
       await this.step('settle', `${label}: settled ${v.settled ?? '?'} (night ${st.night}${v.settled > 1 ? '-' + (st.night + v.settled - 1) : ''})`, 'relay', r, { settled: v.settled, nights: [st.night, st.night + (v.settled ?? 1) - 1] })
+      if (this.checkAudit) await this.audit(`after ${label}`)
       if (!r.failure && v.nights_due === 0) return
       await sleep(2000)
     }
@@ -185,11 +198,11 @@ export class Runner {
 
   async collectFor(player, how, label) {
     if (how === 'collect') {
-      const r = await this.relay.call('collect', { account_id: player.account }, { slot: 7 })
+      const r = await this.relay.call('collect', { account_id: player.account })
       return this.step('collect', `${label}: collect(${player.label})`, player.account, r, { how })
     }
     const st = await this.state()
-    const r = await this.relay.act(player, { collect: { night: st.clock_night } }, { slot: this.slot[player.account] ?? 5 })
+    const r = await this.relay.act(player, { collect: { night: st.clock_night } })
     return this.step('act-collect', `${label}: act collect (${player.label})`, player.account, r, { how: 'act' })
   }
 
@@ -207,6 +220,15 @@ export class Runner {
       }
       await this.collectFor(b, how, label)
     }
+  }
+
+  /** audit() must hold: supply = balances + pile + hearth + owed, and genesis + minted - burned. */
+  async audit(label) {
+    const a = await view(this.relay.contract, 'audit')
+    this.audits = (this.audits ?? 0) + 1
+    if (!a.balanced || !a.ledger) throw new Error(`audit() failed ${label}: balanced ${a.balanced}, ledger ${a.ledger}`)
+    this.log(`   audit ok: supply ${ember(a.supply)}, hearth ${ember(a.hearth)}, owed ${ember(a.owed)}`)
+    return a
   }
 
   /** A bot's throw event for night n of the run's i-th night, or null. */
@@ -230,7 +252,7 @@ export class Runner {
         if (st.clock_night !== n) return this.log(`${b.label}: missed night ${n}`)
         const amount = decide(beh, this.sizes[b.label], fBp, st, BigInt(h.balance), this.cfg)
         if (amount === 0n) return this.log(`night ${n}: ${b.label} holds back (pile ${ember(st.pile)} of ${ember(st.target)}, streak ${st.streak})`)
-        const r = await this.relay.act(b, { throw: { amount: String(amount), night: n } }, { slot: idx })
+        const r = await this.relay.act(b, { throw: { amount: String(amount), night: n } })
         const ev = throwEvent(r)
         return this.step('act-throw', `night ${n} w${ev?.window ?? '-'}: ${b.label} throws ${ember(amount)}`, b.account, r, { amount, night: n, throwEvent: ev })
       },
@@ -287,37 +309,156 @@ export class Runner {
 
 // ---- command line ---------------------------------------------------------------------------------
 
-async function main() {
-  const argv = process.argv.slice(2)
+/**
+ * The bots from the secret BONFIRE_BOTS: a JSON array of 64-character hex seeds. Every seed must be
+ * the key of a bot labelled in web/js/config.js for `contract`, so every bot that plays is labelled
+ * on the page. Error messages never contain a seed.
+ */
+export function botsFromSecret(text, contract, deployments = DEPLOYMENTS) {
+  let seeds
+  try {
+    seeds = JSON.parse(text)
+  } catch {
+    throw new Error('BONFIRE_BOTS is not valid JSON (expected an array of hex seeds)')
+  }
+  if (!Array.isArray(seeds) || !seeds.length) throw new Error('BONFIRE_BOTS must be a non-empty JSON array of hex seeds')
+  const d = Object.values(deployments).find((x) => x.contract === contract)
+  const labels = d?.bots ?? {}
+  const bots = []
+  seeds.forEach((s, i) => {
+    if (typeof s !== 'string' || !/^[0-9a-fA-F]{64}$/.test(s)) throw new Error(`BONFIRE_BOTS[${i}] is not a 64-character hex seed`)
+    const p = Player.fromSeedHex('?', s.toLowerCase())
+    const label = labels[p.account]
+    if (!label) throw new Error(`BONFIRE_BOTS[${i}] belongs to ${p.account}, which web/js/config.js does not label as a bot of ${contract}: refusing to run it`)
+    if (!BEHAVIOURS[label]) throw new Error(`BONFIRE_BOTS[${i}]: no behaviour for the label ${label}`)
+    p.label = label
+    if (!bots.some((b) => b.account === p.account)) bots.push(p)
+  })
+  return bots
+}
+
+/** Nights that fit in `minutes`, leaving one night for the wait before the first and a minute to finish. */
+export function nightsForMinutes(minutes, nightMs) {
+  return Math.max(1, Math.floor((minutes * 60_000 - nightMs - 60_000) / nightMs))
+}
+
+export function parseArgs(argv) {
   const opt = (name) => {
     const i = argv.indexOf(name)
     return i >= 0 ? argv[i + 1] : undefined
   }
-  const contract = argv[0]
-  const nights = Number(opt('--nights'))
-  if (!contract || contract.startsWith('--') || !(nights >= 1 && nights <= 2_000)) {
-    console.error('usage: bots.mjs <contract> --nights <N> [--seed <s>] [--always] [--smoke <k>] [--cold <k>] [--quiet <k>]')
-    process.exit(64)
-  }
-  const relay = new Relay(contract)
-  const bots = loadBots(contract)
-  const { config: cfg, genesis_ms: genesisMs } = await view(contract, 'config')
-  const params = readJson(join(ROOT, 'sim', 'params.json')).testnet
-  const sizes = Object.fromEntries(params.demo_bots.map((d) => [d.label, BigInt(d.throw)]))
-  const runner = new Runner({
-    relay, bots, cfg, genesisMs, sizes,
-    seed: Number(opt('--seed') ?? 1),
+  const o = {
+    contract: argv[0] && !argv[0].startsWith('--') ? argv[0] : null,
+    nights: opt('--nights') === undefined ? null : Number(opt('--nights')),
+    minutes: opt('--minutes') === undefined ? null : Number(opt('--minutes')),
+    seed: opt('--seed') === undefined ? null : Number(opt('--seed')),
     always: argv.includes('--always'),
+    dryRun: argv.includes('--dry-run'),
     smoke: kset(opt('--smoke')),
     cold: kset(opt('--cold')),
     quiet: kset(opt('--quiet')),
-  })
-  const steps = await runner.run(nights)
-  const audit = await view(contract, 'audit')
-  console.log(`audit: balanced ${audit.balanced}, ledger ${audit.ledger}, supply ${ember(audit.supply)}, hearth ${ember(audit.hearth)}, owed ${ember(audit.owed)}`)
-  const failed = steps.filter((s) => s.failure)
-  console.log(`${steps.length} transactions, ${failed.length} failed`)
-  process.exit(failed.length || !audit.balanced || !audit.ledger ? 1 : 0)
+  }
+  const bad = (m) => {
+    throw new Error(`${m}\nusage: bots.mjs <contract> (--nights N | --minutes M) [--seed s] [--always] [--smoke k] [--cold k] [--quiet k] [--dry-run]`)
+  }
+  if (!o.contract) bad('no contract given')
+  if (o.nights !== null && !(Number.isInteger(o.nights) && o.nights >= 1 && o.nights <= 2_000)) bad('--nights: a whole number from 1 to 2000')
+  if (o.minutes !== null && !(Number.isInteger(o.minutes) && o.minutes >= 1 && o.minutes <= 350)) bad('--minutes: a whole number from 1 to 350')
+  if (!o.dryRun && (o.nights === null) === (o.minutes === null)) bad('give exactly one of --nights and --minutes')
+  if (o.seed !== null && !Number.isSafeInteger(o.seed)) bad('--seed: a whole number')
+  return o
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) await main()
+/** Reads the chain and prints what the bots would do next night; sends nothing. */
+async function dryRun(contract, bots, cfg, genesisMs, sizes, opts) {
+  const st = await view(contract, 'state')
+  const d = Object.values(DEPLOYMENTS).find((x) => x.contract === contract)
+  const gasAccount = d?.gasAccount ?? relayKeys(contract)[0]?.account
+  console.log(`dry run on ${contract}: nothing is sent`)
+  console.log(`night ${st.night} (clock ${st.clock_night}, ${st.nights_due} due), target ${ember(st.target)}, pile ${ember(st.pile)}, streak ${st.streak}, hearth ${ember(st.hearth)}`)
+  if (gasAccount) {
+    const keys = (await accessKeys(gasAccount, 'optimistic')).filter((k) => k.access_key.permission.FunctionCall?.receiver_id === contract)
+    const acc = await viewAccount(gasAccount, 'optimistic')
+    const mine = new Set(relayKeys(contract).map((k) => nearPublicKey(keyFromNearString(k.private_key))))
+    console.log(`gas account ${gasAccount}: ${near(acc.amount)} NEAR; ${keys.length} function-call keys for ${contract}, ${keys.filter((k) => mine.has(k.public_key)).length} of them known here`)
+    for (const k of keys) {
+      const fc = k.access_key.permission.FunctionCall
+      console.log(`  ${k.public_key.slice(0, 20)}... ${fc.method_names.join(',')} allowance ${fc.allowance ? near(fc.allowance) : 'unlimited'} NEAR`)
+    }
+  }
+  const rng = (i) => mulberry32((opts.seed ?? 1) * 7919 + i * 104729 + 1)
+  for (const [i, b] of bots.entries()) {
+    const h = await view(contract, 'holder', { account_id: b.account })
+    const plan = planNight(BEHAVIOURS[b.label], rng(i), opts.always)
+    const what = plan ? `would act at ${(plan.t * 100).toFixed(0)} % of the night with about ${ember((sizes[b.label] * plan.fBp) / BP)} EMBER` : 'would sit out'
+    console.log(`  ${b.label.padEnd(17)} ${b.account}  ${ember(h.balance)} EMBER, nonce ${h.nonce}: ${what}`)
+  }
+  const minutes = opts.minutes ?? null
+  if (minutes) console.log(`--minutes ${minutes}: ${nightsForMinutes(minutes, Number(cfg.night_ms))} nights`)
+}
+
+export async function main(argv = process.argv.slice(2), env = process.env) {
+  let opts
+  try {
+    opts = parseArgs(argv)
+  } catch (e) {
+    console.error(e.message)
+    return 64
+  }
+  const { contract } = opts
+  assertTestnet(contract)
+  const secret = (env.BONFIRE_BOTS ?? '').trim()
+  let bots
+  if (secret) {
+    try {
+      bots = botsFromSecret(secret, contract)
+    } catch (e) {
+      console.error(e.message)
+      return 65
+    }
+  } else if (existsSync(botsFile(contract))) bots = loadBots(contract)
+  else if (opts.dryRun) {
+    const labels = Object.values(DEPLOYMENTS).find((x) => x.contract === contract)?.bots ?? {}
+    bots = Object.entries(labels).map(([account, label]) => Object.assign(Object.create(Player.prototype), { account, label }))
+  } else {
+    console.log('no bot keys, nothing to do')
+    return 0
+  }
+  const { config: cfg, genesis_ms: genesisMs } = await view(contract, 'config')
+  const params = readJson(join(ROOT, 'sim', 'params.json')).testnet
+  const sizes = Object.fromEntries(params.demo_bots.map((d) => [d.label, BigInt(d.throw)]))
+  if (opts.dryRun) {
+    await dryRun(contract, bots, cfg, genesisMs, sizes, opts)
+    return 0
+  }
+  const nights = opts.nights ?? nightsForMinutes(opts.minutes, Number(cfg.night_ms))
+  const relay = new Relay(contract)
+  const runner = new Runner({
+    relay, bots, cfg, genesisMs, sizes,
+    seed: opts.seed ?? Math.floor(Date.now() / 1000),
+    always: opts.always,
+    smoke: opts.smoke,
+    cold: opts.cold,
+    quiet: opts.quiet,
+    checkAudit: true,
+  })
+  let error = null
+  try {
+    await runner.run(nights)
+  } catch (e) {
+    error = e
+    console.log(`stopped: ${e.message}`)
+  }
+  const steps = runner.steps
+  const audit = await view(contract, 'audit')
+  const failed = steps.filter((s) => s.failure)
+  const lines = [
+    `${steps.length} transactions, ${failed.length} failed, ${runner.audits ?? 0} audits after settling`,
+    `audit: balanced ${audit.balanced}, ledger ${audit.ledger}, supply ${ember(audit.supply)}, hearth ${ember(audit.hearth)}, owed ${ember(audit.owed)}`,
+  ]
+  for (const l of lines) console.log(l)
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, ['### Bonfire demo bots', '', ...lines.map((l) => `- ${l}`), error ? `- stopped: ${error.message}` : '', ''].join('\n'))
+  return error || failed.length || !audit.balanced || !audit.ledger ? 1 : 0
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) process.exit(await main())

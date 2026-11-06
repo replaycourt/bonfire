@@ -22,12 +22,28 @@ export const DEPLOYMENTS = {
   final: {
     contract: 'bonfire-coin.testnet',
     gasAccount: 'bonfire-gas.testnet',
-    /** Base58 sha256 of the deployed wasm, as `view_account` reports it; null until deployment. */
-    codeHash: null,
-    /** Public function-call keys of gasAccount: { public_key, private_key } in NEAR string form. */
-    gasKeys: [],
-    /** The demo bots (the founders of the testnet demo), so the page labels them as bots; filled in at deployment. */
-    bots: {},
+    /** Base58 sha256 of the deployed wasm, as `view_account` reports it (contract/WASM_SHA256). */
+    codeHash: 'EWcaLXmKxqtKqWGRE1NAnZQTq7i2q87JVUkhYi39mg5z',
+    // PUBLIC on purpose: function-call keys of bonfire-gas.testnet that may only call `act`, `settle`
+    // and `collect` on bonfire-coin.testnet, 0.5 NEAR allowance each (see the comment at the top).
+    gasKeys: [
+      { public_key: 'ed25519:7gRDwLNzBtmVw7Z2jMdEMAumEqemvwszy5u2jg1uoAsW', private_key: 'ed25519:2k5FVjkbrDJsDAVW8T4rRLrCkEroeYdeRPgjiuqcH9tua7VNuJ9hmisFj3ErrrXA4YxsFYKiszRpmZ2HGpguzwj2' },
+      { public_key: 'ed25519:2FKVMYpKaCKkyDSrhSu5JW4pH86uNXcJNSYaajwwWiDn', private_key: 'ed25519:2s45nZwsVtgKkDuEypsMuht6G2rSQfxR2zU38C5DbLo7RgKCZ6DTMGHKK2jmC7eGLNzptGT19vCCz75D7wJVRRdi' },
+      { public_key: 'ed25519:BjRCyknPQ9TWS8D4qBvASWEwJe5KW9kZ1Z2usy5NW1ps', private_key: 'ed25519:4BBpKeGaNP5zqt3htZwBZE3wTdX4nSvk1Zeyj6w7YQvYqe7pX79fDAS3vhdkZq7XRwBYSiFgfHHquXvDAzyTfMEX' },
+      { public_key: 'ed25519:Gvf4wFcKksy3EvNyvu4smqi5g7ix3o3bhmPdLN1yQEcn', private_key: 'ed25519:3XVFERBXgjyNxTvEoA1qcMFbxReRs6H79tqMeCkNahN6ES881AU7rkcd7ebDvMN6EqvCki4TkmsJApbwZYzLfye6' },
+      { public_key: 'ed25519:Ek2thQ9yQaf2vzosa9S1pftBpRBEJUqTVVevHXF2d6Ak', private_key: 'ed25519:3NGF8wDZ8RSd4wmsHvcBSUgaere9sG1kkcNUTKpqxHKnpnKubvXcXnwdESwNcZ8jQh2jMp4ceHdeu9fYgYLtu6pG' },
+      { public_key: 'ed25519:C5XwcmSsLMai5KVKWq179fT4pzgw63RMj5mjuZvfTLda', private_key: 'ed25519:65ZJ2EaFYEyAtM2BgCXvRY9nriTeBp5HfRVpPoDyFXd4gjpuzXo59y7fi4Z2CB1Q4maSrVvRFfL7zLMXdCMJ284' },
+      { public_key: 'ed25519:4pkBHwv3X5vpewnNoNAks5CUxQi6Ri5JVtoL62Xx9Rqd', private_key: 'ed25519:5ixEcYp35LVZFBEB9tnApEUsCgFi64Fr5wvthYBsEARQtSVLeLvccbmYNiTWSHqaPscqWkA5ttQVErBmvfJTFasm' },
+      { public_key: 'ed25519:9fYhnTKiRuzwGrWrLPkVTEdBRVkWzwzUqs6dWhuZU3K8', private_key: 'ed25519:49jMt39Vg9zsLqbEHyYkJEBW7MsuJnPeYMpWQHkX9MNigT6z3ZgqpbsB7rsttNSekBLrFNpB6j6JjMBHp7iqpQz' },
+    ],
+    /** The demo bots (the founders of the testnet demo), so the page labels them as bots. */
+    bots: {
+      '7cbadc6deccc1de5ede5fec0209501eeda19bd6c7f33ef9c38b07b8989c06cc6': 'demo-bot-early-a',
+      '8b6685478ca7e0288b2c500e6c147470adb264644f6586a7ca546a386870b8dc': 'demo-bot-early-b',
+      '89b07f92e0021cb002cd0e50ee4b2478c88ec2bab8f8b9b941c9e2a89d8072ca': 'demo-bot-steady',
+      '9cd9d63db11f5cad14905981d7b8c58d9f80826cfc85e5b6340251aab68e7d55': 'demo-bot-late',
+      '9527561a2b84b767ea694b63bb702c229e4d14ee3fa6ca67cce7bd46c7021a91': 'demo-bot-idle',
+    },
   },
   stage: {
     contract: 'bonfire-stage.testnet',

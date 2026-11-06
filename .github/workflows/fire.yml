@@ -1,0 +1,50 @@
+# Keeps the Bonfire demo fire burning while nobody plays: the five demo bots of the testnet demo
+# (scripts/bots.mjs; their published strategies are in sim/params.json) throw wood, settle due
+# nights and collect, through the same public gas keys and contract rules as every player. Each run
+# lasts just under six hours and the schedule starts the next one, so the runs follow each other
+# with short gaps.
+#
+# The bot keys come only from the repository secret BONFIRE_BOTS (a JSON array of five hex seeds,
+# each the key of a bot labelled in web/js/config.js). Without it the job logs "no bot keys,
+# nothing to do" and succeeds. It reads nothing else secret, and it writes nothing to the
+# repository.
+name: Fire
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: How long to run, in minutes (1 to 350)
+        default: '350'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fire
+  cancel-in-progress: false
+
+jobs:
+  bots:
+    name: Demo bots
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # No install: the scripts use only Node's standard library and the page's own config module.
+      - name: Run the demo bots
+        env:
+          BONFIRE_BOTS: ${{ secrets.BONFIRE_BOTS }}
+          MINUTES: ${{ github.event.inputs.minutes || '350' }}
+          SEED: ${{ github.run_id }}
+        run: |
+          if [ -z "$BONFIRE_BOTS" ]; then echo "no bot keys, nothing to do"; exit 0; fi
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a whole number"; exit 64;; esac
+          if [ "$MINUTES" -lt 1 ]; then echo "minutes must be at least 1"; exit 64; fi
+          if [ "$MINUTES" -gt 350 ]; then MINUTES=350; fi
+          node scripts/bots.mjs bonfire-coin.testnet --minutes "$MINUTES" --seed "$SEED"
