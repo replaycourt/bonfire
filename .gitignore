@@ -10,3 +10,8 @@ stills/
 check/
 *.wav
 *.mp4
+# demo video: takes, frames, voice and the finished video stay out of git
+# (web/media/bonfire-demo.mp4 goes in only by an explicit `git add -f`)
+demo/video/out/
+demo/video/takes/
+demo/video/work/

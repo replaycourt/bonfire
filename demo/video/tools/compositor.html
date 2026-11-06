@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bonfire demo compositor</title>
+<style>
+  :root {
+    --night: #07060d; --ink-1: #fff3e2; --ink-2: rgba(255, 236, 214, 0.78); --ink-3: rgba(255, 226, 196, 0.55);
+    --amber: #ffc861; --flame: #ff8a2a; --ember: #e8552a; --smoke: #a9a5b8; --good: #ffd88a;
+    --glass: rgba(17, 12, 28, 0.82); --line: rgba(255, 214, 160, 0.2);
+    --font: ui-rounded, "SF Pro Rounded", "Nunito", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--night); font-family: var(--font); color: var(--ink-1); -webkit-font-smoothing: antialiased; }
+  #stage { position: relative; width: 1920px; height: 1080px; }
+  #frame { position: absolute; inset: 0; }
+  .hidden { display: none !important; }
+
+  /* captions: a glass pill, at the bottom by default */
+  #caption { position: absolute; left: 0; right: 0; bottom: 30px; display: flex; justify-content: center; pointer-events: none; }
+  #caption.mid { bottom: auto; top: 372px; }
+  #caption.mid .pill { max-width: 840px; }
+  #caption.top { bottom: auto; top: 118px; }
+  #caption.low { bottom: 140px; }
+  #caption.left { left: 40px; right: 700px; }
+  #caption.left .pill { max-width: 1160px; }
+  #band { position: absolute; left: 0; right: 0; bottom: 0; height: 170px; background: linear-gradient(180deg, rgba(7, 6, 13, 0), rgba(7, 6, 13, 0.82) 60%); pointer-events: none; }
+  #caption .pill { max-width: 1500px; background: var(--glass); border: 1.5px solid var(--line); border-radius: 26px; padding: 15px 34px; font-size: 38px; line-height: 1.28; font-weight: 700; text-align: center; letter-spacing: 0.005em; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); }
+  #caption .pill em { font-style: normal; color: var(--amber); }
+
+  /* badges at the top centre: live, and sped up */
+  #badges { position: absolute; top: 22px; left: 0; right: 0; display: flex; justify-content: center; gap: 12px; pointer-events: none; }
+  .badge { display: flex; align-items: center; gap: 10px; background: var(--glass); border: 1.5px solid var(--line); border-radius: 999px; padding: 7px 18px 7px 14px; font-size: 19px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--good); }
+  .badge .dot { width: 11px; height: 11px; border-radius: 50%; background: #7fd39a; box-shadow: 0 0 12px #7fd39a; }
+  .badge small { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--ink-1); opacity: 0.85; font-size: 18px; }
+  #speed { color: #fff; background: rgba(232, 85, 42, 0.86); border-color: rgba(255, 200, 140, 0.5); }
+  #speed svg { width: 22px; height: 16px; }
+
+  /* the hand */
+  #cursor { position: absolute; left: 0; top: 0; width: 40px; height: 52px; pointer-events: none; filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6)); }
+  #ripple { position: absolute; width: 20px; height: 20px; border-radius: 50%; border: 5px solid var(--amber); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 0 18px rgba(255, 200, 97, 0.7); }
+
+  /* who threw: a short list under the player's card, from the chain's recent_throws */
+  #ticker { position: absolute; right: 44px; top: 100px; width: 470px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  #ticker .row { display: flex; align-items: center; gap: 10px; background: var(--glass); border: 1.5px solid var(--line); border-radius: 12px; padding: 4px 14px; font-size: 20px; font-weight: 700; height: 30px; }
+  #ticker .tag { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--night); background: var(--smoke); border-radius: 6px; padding: 1px 6px; }
+  #ticker .row.you .tag { background: var(--amber); }
+  #ticker .who { flex: 1; font-family: var(--mono); font-size: 18px; font-weight: 600; }
+  #ticker .amt { color: var(--good); }
+  #ticker .q { font-size: 15px; color: var(--ink-3); font-weight: 700; }
+
+  /* the hook's title over the fire */
+  #title { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 46%, rgba(7, 6, 13, 0.25), rgba(7, 6, 13, 0.78) 72%); }
+  #title .word { font-size: 150px; font-weight: 900; letter-spacing: 0.01em; background: linear-gradient(180deg, #fff1c8 10%, #ffb55a 58%, #ff7a2a); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 34px rgba(255, 140, 50, 0.45)); line-height: 1.05; }
+  #title .tag { margin-top: 18px; font-size: 54px; font-weight: 800; color: var(--ink-1); text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8); }
+  #title .tag em { font-style: normal; color: var(--amber); }
+  #title .sub { margin-top: 22px; font-size: 26px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); opacity: 0.92; }
+
+  /* cards over a dimmed picture */
+  .card { --dim: 1; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 56px; background: radial-gradient(ellipse at 50% 45%, rgba(7, 6, 13, calc(0.8 * var(--dim))), rgba(7, 6, 13, calc(0.96 * var(--dim))) 72%); }
+  .panel { background: var(--glass); border: 1.5px solid var(--line); border-radius: 26px; padding: 30px 36px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); }
+  .panel h3 { margin: 0 0 16px; font-size: 22px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); }
+  .fade { opacity: 0; transform: translateY(12px); }
+  .fade.on { opacity: 1; transform: none; }
+
+  /* the coin's face, drawn by the contract */
+  #face { background: radial-gradient(ellipse at 50% 45%, rgba(7, 6, 13, calc(0.86 * var(--dim))), rgba(7, 6, 13, calc(0.97 * var(--dim))) 72%); }
+  #end { background: radial-gradient(ellipse at 50% 50%, rgba(7, 6, 13, calc(0.6 * var(--dim))), rgba(7, 6, 13, calc(0.93 * var(--dim))) 70%); }
+  #face .coin { width: 470px; height: 470px; border-radius: 96px; box-shadow: 0 0 0 2px rgba(255, 200, 140, 0.25), 0 20px 80px rgba(255, 120, 40, 0.35); }
+  #face .side { width: 640px; }
+  #face .side h3 { font-size: 24px; }
+  #face .side p { margin: 0 0 18px; font-size: 34px; line-height: 1.32; font-weight: 700; }
+  #face .side p em { font-style: normal; color: var(--amber); }
+  #face .side p span { color: var(--ink-2); font-weight: 600; font-size: 28px; }
+  #face code { font-family: var(--mono); font-size: 24px; color: var(--good); }
+
+  /* proof: no keys, and the simulation */
+  #proof .keys { width: 640px; }
+  #proof pre { margin: 0; font-family: var(--mono); font-size: 23px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; word-break: break-all; }
+  #proof pre b { color: var(--good); font-weight: 700; }
+  #proof .keys .big { margin-top: 22px; font-size: 40px; font-weight: 800; color: var(--ink-1); }
+  #proof .keys .big em { font-style: normal; color: var(--good); }
+  #proof .sim { width: 930px; }
+  #proof .sim img { width: 860px; display: block; border-radius: 14px; }
+  #proof .sim .big { margin-top: 16px; font-size: 30px; font-weight: 800; }
+
+  /* the end card */
+  #end { flex-direction: column; gap: 0; }
+  #end .brand { display: flex; align-items: center; gap: 30px; }
+  #end .brand img { width: 168px; height: 168px; border-radius: 38px; box-shadow: 0 0 0 2px rgba(255, 200, 140, 0.25), 0 12px 50px rgba(255, 120, 40, 0.35); }
+  #end .word { font-size: 140px; font-weight: 900; background: linear-gradient(180deg, #fff1c8 10%, #ffb55a 58%, #ff7a2a); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 30px rgba(255, 140, 50, 0.4)); line-height: 1; }
+  #end .ticker { font-size: 26px; font-weight: 800; letter-spacing: 0.16em; color: var(--ink-3); border: 1.5px solid var(--line); border-radius: 999px; padding: 6px 18px; align-self: center; }
+  #end .tag { margin-top: 26px; font-size: 40px; font-weight: 700; color: var(--ink-2); }
+  #end .link { margin-top: 44px; font-family: var(--mono); font-size: 40px; color: var(--good); background: rgba(255, 243, 220, 0.08); border: 1.5px solid var(--line); padding: 14px 34px; border-radius: 999px; }
+  #end .link small { font-family: var(--font); font-size: 26px; color: var(--ink-2); margin-right: 14px; font-weight: 700; }
+  #end .built { margin-top: 26px; font-size: 26px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--amber); }
+  #end .question { margin-top: 44px; font-size: 44px; font-weight: 800; color: var(--ink-1); background: rgba(255, 243, 220, 0.07); border: 1.5px dashed rgba(255, 214, 160, 0.4); padding: 18px 44px; border-radius: 999px; }
+  #end .question em { font-style: normal; color: var(--amber); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="frame" width="1920" height="1080"></canvas>
+  <div id="ticker" class="hidden"></div>
+  <div id="title" class="hidden"></div>
+  <div id="face" class="card hidden"></div>
+  <div id="proof" class="card hidden"></div>
+  <div id="end" class="card hidden"></div>
+  <div id="badges"><div id="badge" class="badge hidden"><span class="dot"></span><span>Live</span><small></small></div><div id="speed" class="badge hidden"><svg viewBox="0 0 22 16"><path d="M1 1 L10 8 L1 15 Z M11 1 L20 8 L11 15 Z" fill="#fff"/></svg><span></span></div></div>
+  <div id="band" class="hidden"></div>
+  <div id="caption" class="hidden"><div class="pill"></div></div>
+  <div id="ripple" class="hidden"></div>
+  <svg id="cursor" class="hidden" viewBox="0 0 28 36"><path d="M3 2 L3 27 L9.5 21 L14 31 L18.5 29 L14 19.5 L22.5 19 Z" fill="#fff3e2" stroke="#1a1020" stroke-width="2.2" stroke-linejoin="round"/></svg>
+</div>
+<script>
+const $ = (id) => document.getElementById(id)
+const ctx = $('frame').getContext('2d')
+ctx.imageSmoothingEnabled = true
+ctx.imageSmoothingQuality = 'high'
+
+let T = null // timeline (voice.py)
+let SB = null // storyboard
+// per take: {url, frames: [{i, t}] sorted by t, relative to the recording start, cursor, clicks, throws,
+// view: [w, h] CSS px of the recorded viewport}
+const TAKES = {}
+const imgCache = new Map()
+const FADE = 0.4
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+/** *text* is shown in amber. */
+const rich = (s) => esc(s).replace(/\*([^*]+)\*/g, '<em>$1</em>')
+const ease = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2)
+
+window.setup = async function (timeline, storyboard, takes) {
+  T = timeline
+  SB = storyboard
+  for (const [name, take] of Object.entries(takes)) {
+    const rec = take.events.find((e) => e.ev === 'record')
+    const t0 = rec.t
+    TAKES[name] = {
+      url: take.url.replace(/\/$/, ''),
+      frames: take.frames.map((f) => ({ i: f.i, t: f.t - t0 })).sort((a, b) => a.t - b.t),
+      cursor: take.events.filter((e) => e.ev === 'cursor' || e.ev === 'click' || e.ev === 'hover').map((e) => ({ t: e.t - t0, x: e.x, y: e.y })),
+      clicks: take.events.filter((e) => e.ev === 'click').map((e) => ({ t: e.t - t0, x: e.x, y: e.y })),
+      throws: take.events.filter((e) => e.ev === 'throw').map((e) => ({ ...e, t: e.t - t0 })),
+      view: rec.viewport ?? [1280, 720],
+      record: rec,
+    }
+  }
+  const take0 = Object.values(TAKES)[0]
+  $('badge').querySelector('small').textContent = `NEAR testnet · ${take0.record.contract ?? SB.meta.contract}`
+  for (const s of SB.scenes) if (s.overlay) build(s.overlay)
+  const probe = await loadFrame(Object.keys(TAKES)[0], take0.frames[0].i)
+  return { takes: Object.fromEntries(Object.entries(TAKES).map(([n, k]) => [n, { frames: k.frames.length, cursor: k.cursor.length, clicks: k.clicks.length, throws: k.throws.length }])), source: [probe.naturalWidth, probe.naturalHeight] }
+}
+
+/** Builds an overlay's DOM once; `seek` only switches its parts on. */
+function build(o) {
+  const take = Object.values(TAKES)[0]
+  if (o.kind === 'title') {
+    $('title').innerHTML = `<div class="word">${esc(o.word)}</div><div class="tag">${rich(o.tag)}</div>${o.sub ? `<div class="sub">${esc(o.sub)}</div>` : ''}`
+  } else if (o.kind === 'face') {
+    // a line "main|small" shows the part after | smaller
+    const line = (l) => l.split('|').map((part, k) => (k ? ` <span>${rich(part)}</span>` : rich(part))).join('')
+    $('face').innerHTML = `<img class="coin fade" data-at="0" src="${take.url}/icon.svg" alt=""><div class="side">${o.lines.map((l, i) => `<p class="fade" data-at="${i}">${line(l)}</p>`).join('')}</div>`
+  } else if (o.kind === 'proof') {
+    $('proof').innerHTML = `<div class="panel keys fade" data-at="0"><h3>${esc(o.keysTitle)}</h3><pre id="keys-pre"></pre><div class="big">${rich(o.keysLine)}</div></div>
+      <div class="panel sim fade" data-at="1"><h3>${esc(o.simTitle)}</h3><img src="${esc(o.chart)}" alt=""><div class="big">${rich(o.simLine)}</div></div>`
+    fetch(`${take.url}/keys.json`).then((r) => r.json()).then((k) => {
+      $('keys-pre').innerHTML = `view_access_key_list\n  account  ${esc(k.account_id)}\n  block    ${esc(k.block_height)}\n\n<b>"keys": ${esc(JSON.stringify(k.keys))}</b>`
+    }).catch(() => ($('keys-pre').textContent = 'keys.json missing'))
+  } else if (o.kind === 'end') {
+    $('end').innerHTML = `<div class="brand fade" data-at="0"><img src="${take.url}/icon.svg" alt=""><span class="word">${esc(o.word)}</span><span class="ticker">${esc(o.ticker)}</span></div>
+      <div class="tag fade" data-at="0">${rich(o.tag)}</div>
+      <div class="link fade" data-at="1"><small>play</small>${esc(o.link)}</div>
+      <div class="built fade" data-at="1">${esc(o.built)}</div>
+      <div class="question fade" data-at="2">${rich(o.question)}</div>`
+  }
+}
+
+function loadFrame(take, i) {
+  const key = `${take}:${i}`
+  if (imgCache.has(key)) return imgCache.get(key)
+  const img = new Image()
+  img.src = `${TAKES[take].url}/frames/f${String(i).padStart(6, '0')}.jpg`
+  const p = img.decode().then(() => img)
+  imgCache.set(key, p)
+  if (imgCache.size > 16) imgCache.delete(imgCache.keys().next().value)
+  return p
+}
+
+/** Index (into the sorted frames) of the take's last frame at or before take time t. */
+function frameIndexAt(take, t) {
+  const F = TAKES[take].frames
+  let lo = 0
+  let hi = F.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (F[mid].t <= t) lo = mid
+    else hi = mid - 1
+  }
+  return lo
+}
+
+/** Where a scene's picture comes from at output time t: {take, src, seg}, or null for a scene without clips. */
+function sourceTime(scene, t) {
+  if (!scene.segments.length) return null
+  let seg = scene.segments.find((s) => t >= s.start && t < s.end)
+  if (!seg) seg = t < scene.segments[0].start ? scene.segments[0] : scene.segments[scene.segments.length - 1]
+  const src = seg.from + Math.max(0, Math.min(seg.end, t) - seg.start) * seg.speed
+  return { take: seg.take, src: Math.min(src, seg.to - 0.001), seg, local: Math.max(0, t - seg.start) }
+}
+
+function lastPicture(scene) {
+  for (let i = T.scenes.indexOf(scene); i >= 0; i--) {
+    const s = sourceTime(T.scenes[i], T.scenes[i].end - 0.001)
+    if (s) return s
+  }
+  return null
+}
+
+/** The zoom rectangle of a segment at its local time, in viewport CSS px: [x, y, w, h]. */
+function zoomRect(seg, local, view) {
+  const full = [0, 0, view[0], view[1]]
+  const z = seg?.zoom
+  if (!z) return full
+  const to = z.to ?? z
+  const fit = (r) => [r[0], r[1], r[2], (r[2] * view[1]) / view[0]]
+  const target = fit(to)
+  const from = z.from ? fit(z.from) : full
+  const dur = (seg.end - seg.start)
+  let k = 1
+  if (z.in) k = ease(local / z.in)
+  if (z.out && local > dur - z.out) k = Math.min(k, ease((dur - local) / z.out))
+  return from.map((v, i) => v + (target[i] - v) * k)
+}
+
+async function drawSource(s, alpha = 1) {
+  const take = TAKES[s.take]
+  const F = take.frames
+  const idx = frameIndexAt(s.take, s.src)
+  const a = F[idx]
+  const b = F[idx + 1]
+  // between two recorded frames: a crossfade, so a slow recording plays smoothly at 30 fps
+  let k = 0
+  if (b && (s.seg?.speed ?? 1) <= 2.5 && b.t - a.t < 0.25) k = Math.round(((s.src - a.t) / (b.t - a.t)) * 4) / 4
+  const zr = zoomRect(s.seg, s.local, take.view)
+  const draw = async (i, al) => {
+    const img = await loadFrame(s.take, i)
+    const sx = img.naturalWidth / take.view[0]
+    ctx.globalAlpha = al
+    ctx.drawImage(img, zr[0] * sx, zr[1] * sx, zr[2] * sx, zr[3] * sx, 0, 0, 1920, 1080)
+  }
+  await draw(a.i, alpha)
+  if (k > 0) await draw(b.i, alpha * k)
+  ctx.globalAlpha = 1
+  return { sig: `f${s.take}:${a.i}${k > 0 ? '+' + k : ''}|z${zr.map((v) => v.toFixed(1)).join(',')}`, zr }
+}
+
+function cursorAt(take, src) {
+  const C = TAKES[take].cursor
+  if (!C.length || src < C[0].t) return null
+  let lo = 0
+  let hi = C.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (C[mid].t <= src) lo = mid
+    else hi = mid - 1
+  }
+  const a = C[lo]
+  const b = C[lo + 1]
+  if (b && b.t - a.t < 0.2) {
+    const k = (src - a.t) / (b.t - a.t)
+    return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, alpha: 1 }
+  }
+  // a hand that rests and is not about to click fades away, so it never sits on a caption
+  const idle = src - a.t
+  const next = TAKES[take].clicks.find((c) => c.t > src)
+  const soon = next && next.t - src < 4.5 && next.t - a.t < 6
+  const alpha = soon ? 1 : Math.round(Math.max(0, Math.min(1, 1 - (idle - 1.2) / 0.4)) * 8) / 8
+  return { x: a.x, y: a.y, alpha }
+}
+
+/** Fades the parts of a card in: data-at="n" turns on with the scene's n-th cue (or at its start). */
+function stepParts(el, scene, t, sb) {
+  const at = sb.overlay?.at ?? []
+  let sig = ''
+  // the dimmed backdrop comes with the first part
+  const first = at[0] != null ? scene.start + at[0] : scene.start - 0.1
+  const dim = Math.round(Math.max(0, Math.min(1, (t - first) / 0.45)) * 8) / 8
+  el.style.setProperty('--dim', String(dim))
+  sig += `d${dim}`
+  el.querySelectorAll('.fade').forEach((p) => {
+    const n = Number(p.dataset.at)
+    const start = at[n] != null ? scene.start + at[n] : (scene.cues[n]?.start ?? scene.start) - 0.1
+    const k = Math.max(0, Math.min(1, (t - start) / 0.35))
+    const step = Math.round(k * 6) / 6
+    p.style.opacity = String(step)
+    p.style.transform = `translateY(${Math.round((1 - step) * 12)}px)`
+    sig += step.toFixed(2)
+  })
+  return sig
+}
+
+window.seek = async function (t) {
+  const scene = T.scenes.find((s) => t >= s.start && t < s.end) ?? T.scenes[T.scenes.length - 1]
+  const sb = SB.scenes.find((s) => s.id === scene.id) ?? {}
+  const sig = []
+  const prevScene = T.scenes[T.scenes.indexOf(scene) - 1]
+
+  // picture: this scene's frame, crossfaded from the previous scene's last one at a cut
+  const live = sourceTime(scene, t)
+  const src = live ?? (prevScene ? lastPicture(prevScene) : null)
+  let zr = null
+  if (src) {
+    const continuous = prevScene && scene.segments.length && (() => {
+      const p = lastPicture(prevScene)
+      const f = scene.segments[0]
+      return p && p.take === f.take && Math.abs(p.src - f.from) < 0.15 && !f.zoom && !prevScene.segments.at(-1)?.zoom
+    })()
+    const fade = prevScene && scene.segments.length && !continuous && t - scene.start < FADE ? Math.round(((t - scene.start) / FADE) * 12) / 12 : 1
+    ctx.fillStyle = '#07060d'
+    ctx.fillRect(0, 0, 1920, 1080)
+    if (fade < 1) {
+      const prev = lastPicture(prevScene)
+      if (prev) sig.push('p' + (await drawSource(prev)).sig)
+    }
+    const d = await drawSource(src, fade)
+    zr = d.zr
+    sig.push(d.sig, `x${fade}`)
+  }
+
+  // badges: live while the take plays, and the speed when it is sped up
+  const overlayCard = sb.overlay && sb.overlay.kind !== 'title'
+  const badge = sb.badge !== false && !overlayCard && !!live
+  $('badge').classList.toggle('hidden', !badge)
+  const speed = live?.seg?.speed ?? 1
+  const fast = badge && speed > 1.6
+  $('speed').classList.toggle('hidden', !fast)
+  if (fast) $('speed').querySelector('span').textContent = `${Math.round(speed)}× sped up`
+  sig.push(badge ? 'b1' : 'b0', fast ? `s${Math.round(speed)}` : 's')
+
+  // who threw tonight, as the chain names them
+  const tk = $('ticker')
+  if (sb.ticker && live) {
+    const night = sb.ticker.night
+    const rows = TAKES[live.take].throws.filter((e) => e.night === night && e.t <= live.src).slice(-5)
+    tk.innerHTML = rows
+      .map((e) => {
+        const you = e.who === 'visitor'
+        const k = Math.max(0, Math.min(1, (live.src - e.t) / 0.5))
+        return `<div class="row${you ? ' you' : ''}" style="opacity:${(Math.round(k * 4) / 4).toFixed(2)}"><span class="tag">${you ? 'you' : 'bot'}</span><span class="who">${esc(you ? 'the visitor' : e.who)}</span><span class="amt">+${esc(e.amount)}</span><span class="q">Q${e.window + 1}</span></div>`
+      })
+      .join('')
+    tk.classList.toggle('hidden', !rows.length)
+    sig.push('t' + rows.map((e) => `${e.who}${Math.round(Math.max(0, Math.min(1, (live.src - e.t) / 0.5)) * 4)}`).join(','))
+  } else tk.classList.add('hidden')
+
+  // overlays: title, face, proof, end
+  for (const id of ['title', 'face', 'proof', 'end']) $(id).classList.toggle('hidden', sb.overlay?.kind !== id)
+  if (sb.overlay) {
+    const el = $(sb.overlay.kind)
+    if (sb.overlay.kind === 'title') {
+      const fin = Math.min(1, (t - scene.start) / 0.5)
+      const fout = sb.overlay.fadeOut ? Math.min(1, Math.max(0, (scene.end - t) / sb.overlay.fadeOut)) : 1
+      const a = Math.round(Math.min(fin, fout) * 10) / 10
+      el.style.opacity = String(a)
+      sig.push(`T${a}`)
+    } else sig.push('O' + stepParts(el, scene, t, sb))
+  }
+
+  // caption
+  const cue = scene.cues.find((c) => t >= c.start && t < c.showUntil && !c.noCaption)
+  const cap = $('caption')
+  if (cue) {
+    const step = Math.round(Math.min(1, (t - cue.start) / 0.2) * 6)
+    cap.querySelector('.pill').innerHTML = rich(cue.caption)
+    cap.className = cue.pos ?? sb.captionPos ?? ''
+    cap.style.opacity = String(step / 6)
+    cap.style.transform = `translateY(${Math.round((1 - step / 6) * 8)}px)`
+    const band = (cap.className === '' || cap.className === 'bottom') && !overlayCard && !!live
+    $('band').classList.toggle('hidden', !band)
+    $('band').style.opacity = String(step / 6)
+    sig.push(`c${scene.cues.indexOf(cue)}.${step}${band ? 'B' : ''}`)
+  } else {
+    $('band').classList.add('hidden')
+    cap.className = 'hidden'
+    sig.push('c-')
+  }
+
+  // cursor and click ripple, in the zoomed picture's coordinates
+  const cur = live && sb.cursor !== false && !overlayCard ? cursorAt(live.take, live.src) : null
+  if (cur && zr && cur.alpha > 0) {
+    const k = 1920 / zr[2]
+    const x = Math.round((cur.x - zr[0]) * k)
+    const y = Math.round((cur.y - zr[1]) * k)
+    $('cursor').style.transform = `translate(${x - 6}px, ${y - 4}px)`
+    $('cursor').style.opacity = String(cur.alpha)
+    $('cursor').classList.remove('hidden')
+    sig.push(`p${x},${y},${cur.alpha}`)
+    const click = TAKES[live.take].clicks.find((c) => live.src >= c.t && live.src < c.t + 0.5)
+    if (click) {
+      const step = Math.round(((live.src - click.t) / 0.5) * 12)
+      const r = 14 + 46 * (step / 12)
+      const rp = $('ripple')
+      rp.style.left = `${(click.x - zr[0]) * k}px`
+      rp.style.top = `${(click.y - zr[1]) * k}px`
+      rp.style.width = rp.style.height = `${r * 2}px`
+      rp.style.opacity = String(1 - step / 12)
+      rp.classList.remove('hidden')
+      sig.push(`r${step}`)
+    } else $('ripple').classList.add('hidden')
+  } else {
+    $('cursor').classList.add('hidden')
+    $('ripple').classList.add('hidden')
+  }
+  return sig.join('|')
+}
+</script>
+</body>
+</html>

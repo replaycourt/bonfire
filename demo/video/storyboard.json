@@ -1,0 +1,339 @@
+{
+  "_readme": "The demo video, scene by scene: which stretch of the recorded take is shown, at what speed, with which narration. Clip anchors point at events in the take's events.jsonl: \"click:Get kindling\" is the click on that button, \"throw:demo-bot-late-1\" one second before the page showed the late bot's throw, \"banner:Night 30+0.5\" half a second after the banner of night 30 appeared, a number is seconds into the take. A scene lasts as long as its clips or its narration, whichever is longer; with \"fit\": \"stretch\" the clips not marked \"fixed\" are sped up or slowed to the narration. \"zoom\" crops the picture to a rectangle of the 1280x720 page (x, y, width; the height follows 16:9), eased in over \"in\" seconds. \"ticker\" lists that night's throws as the chain names them. *text* in a caption is coloured. A cue with \"noCaption\": true is spoken and in the .srt but not burned in (the card shows it). See README.md.",
+  "meta": {
+    "title": "Bonfire",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "videoBitrate": 3000000,
+    "audioBitrate": 112000,
+    "posterAt": 2.6,
+    "takes": [
+      "night"
+    ],
+    "contract": "bonfire-coin.testnet"
+  },
+  "voice": {
+    "engine": "piper",
+    "name": "en_US-lessac-high",
+    "lengthScale": 1.2,
+    "noiseScale": 0.5,
+    "noiseW": 0.6,
+    "sentenceSilence": 0.3,
+    "sceneLeadIn": 0.4,
+    "cueGap": 0.4,
+    "sceneTail": 0.5,
+    "endHold": 1.2,
+    "captionHold": 0.7
+  },
+  "scenes": [
+    {
+      "id": "hook",
+      "badge": false,
+      "cursor": false,
+      "clip": {
+        "from": "banner:Night 30 -0.9",
+        "dur": 5.0,
+        "zoom": {
+          "from": [
+            380,
+            222,
+            520
+          ],
+          "to": [
+            405,
+            232,
+            470
+          ],
+          "in": 5.0
+        }
+      },
+      "overlay": {
+        "kind": "title",
+        "word": "Bonfire",
+        "tag": "A memecoin you *light together*.",
+        "fadeOut": 0.4
+      },
+      "cues": [
+        {
+          "caption": "A memecoin you light together.",
+          "noCaption": true
+        }
+      ]
+    },
+    {
+      "id": "visitor",
+      "captionPos": "bottom",
+      "clips": [
+        {
+          "from": "night+0.6",
+          "to": "click:Get kindling+0.6",
+          "speed": 1.25
+        },
+        {
+          "from": "click:Get kindling+0.6",
+          "to": "toast:kindling-0.4",
+          "speed": 2.5
+        },
+        {
+          "from": "toast:kindling-0.4",
+          "to": "hover:chip 100+0.3",
+          "speed": 1.25
+        },
+        {
+          "from": "hover:chip 100+0.3",
+          "to": "click:throw 100+0.2",
+          "zoom": {
+            "to": [
+              640,
+              150,
+              640
+            ],
+            "in": 0.6,
+            "out": 0.5
+          }
+        },
+        {
+          "from": "click:throw 100+0.2",
+          "to": "firestarter:you+2.2",
+          "speed": 1.5
+        }
+      ],
+      "cues": [
+        {
+          "caption": "A first-time visitor: no wallet, no sign-up."
+        },
+        {
+          "caption": "One tap brings two hundred EMBER of free *kindling*.",
+          "say": "One tap brings two hundred ember of free kindling."
+        },
+        {
+          "caption": "The pile is cold, so wood counts almost *four times*. Throw a hundred: the firestarter."
+        }
+      ]
+    },
+    {
+      "id": "bots",
+      "captionPos": "bottom",
+      "ticker": {
+        "night": 30
+      },
+      "cursor": false,
+      "clips": [
+        {
+          "from": "firestarter:you+2.2",
+          "to": "throw:demo-bot-early-a-1.2",
+          "speed": 24
+        },
+        {
+          "from": "throw:demo-bot-early-a-1.2",
+          "to": "throw:demo-bot-early-a+2.0",
+          "fixed": true
+        },
+        {
+          "from": "throw:demo-bot-early-a+2.0",
+          "to": "throw:demo-bot-steady-1.2",
+          "speed": 24
+        },
+        {
+          "from": "throw:demo-bot-steady-1.2",
+          "to": "throw:demo-bot-steady+2.0",
+          "fixed": true
+        },
+        {
+          "from": "throw:demo-bot-steady+2.0",
+          "to": "throw:demo-bot-late-1.2",
+          "speed": 24
+        },
+        {
+          "from": "throw:demo-bot-late-1.2",
+          "to": "throw:demo-bot-late+3.2",
+          "fixed": true
+        },
+        {
+          "from": "throw:demo-bot-late+3.2",
+          "to": "banner:Night 30 -1.2",
+          "speed": 24
+        }
+      ],
+      "fit": "stretch",
+      "cues": [
+        {
+          "caption": "Then the demo bots, each labelled as a bot. Two early ones share your quarter of the night."
+        },
+        {
+          "caption": "A steady one follows. The pile climbs toward the line."
+        },
+        {
+          "caption": "A sniper waits for the end, then closes the gap: the *last log*."
+        }
+      ]
+    },
+    {
+      "id": "dawn",
+      "captionPos": "bottom",
+      "clips": [
+        {
+          "from": "banner:Night 30 -1.2",
+          "to": "click:Collect-0.2"
+        },
+        {
+          "from": "click:Collect-0.2",
+          "to": "toast:collected+2.0"
+        }
+      ],
+      "cues": [
+        {
+          "caption": "Dawn: the fire caught. Everyone gets their wood back, plus new EMBER.",
+          "say": "Dawn: the fire caught. Everyone gets their wood back, plus new ember."
+        },
+        {
+          "caption": "Early wood earns most: the same 100 got *4.26* early, *1.08* sniped.",
+          "say": "Early wood earns most: the same hundred got four point two six early, and one point zero eight sniped."
+        }
+      ]
+    },
+    {
+      "id": "smoke",
+      "captionPos": "bottom",
+      "ticker": {
+        "night": 31
+      },
+      "clips": [
+        {
+          "from": "hover:chip 25-0.6",
+          "to": "click:throw 25+1.2",
+          "speed": 1.2
+        },
+        {
+          "from": "banner:Night 31 -1.0",
+          "dur": 7.0
+        }
+      ],
+      "cues": [
+        {
+          "caption": "Next night the bots and the visitor hold back, on purpose."
+        },
+        {
+          "caption": "Too little wood: the fire smokes, and three percent of the pile burns."
+        }
+      ]
+    },
+    {
+      "id": "face",
+      "captionPos": "bottom",
+      "cursor": false,
+      "clips": [
+        {
+          "from": "scroll-start:face",
+          "to": "scroll-start:top-0.5"
+        }
+      ],
+      "overlay": {
+        "kind": "face",
+        "at": [
+          3.2,
+          3.6,
+          4.4
+        ],
+        "lines": [
+          "*The coin's face*",
+          "Drawn by the contract from its own state.|Last night's word, its fire, and the seven nights before.",
+          "Every wallet that lists EMBER shows it."
+        ]
+      },
+      "cues": [
+        {
+          "caption": "Three lit nights later, the coin's face reads *LIT ×3*.",
+          "say": "Three lit nights later, the coin's face reads: lit, times three."
+        },
+        {
+          "caption": "The contract draws it, so every wallet shows tonight's fire."
+        }
+      ]
+    },
+    {
+      "id": "proof",
+      "captionPos": "left",
+      "clips": [
+        {
+          "from": "click:Proof-0.5",
+          "to": "click:close-0.3",
+          "speed": 1.3
+        }
+      ],
+      "cues": [
+        {
+          "caption": "Every tap was a real transaction. And the contract has *no keys*: nobody can change a rule."
+        }
+      ]
+    },
+    {
+      "id": "proof-card",
+      "captionPos": "bottom",
+      "overlay": {
+        "kind": "proof",
+        "at": [
+          0.1,
+          0.5
+        ],
+        "keysTitle": "No keys",
+        "keysLine": "Nobody can change, upgrade or drain it. *Not even its author.*",
+        "simTitle": "60 simulated nights",
+        "chart": "../../../docs/sim/target_pile.svg",
+        "simLine": "The simulation picked every launch number."
+      },
+      "cues": [
+        {
+          "caption": "Sixty simulated nights picked every number."
+        }
+      ],
+      "minDuration": 5.5
+    },
+    {
+      "id": "end",
+      "badge": false,
+      "cursor": false,
+      "overlay": {
+        "kind": "end",
+        "at": [
+          0.0,
+          1.2,
+          3.4
+        ],
+        "word": "Bonfire",
+        "ticker": "EMBER",
+        "tag": "A memecoin you light together.",
+        "link": "replaycourt.github.io/bonfire/web/",
+        "built": "Built at NEAR HACKATHON",
+        "question": "Would you throw *early*, or wait and *snipe*?"
+      },
+      "cues": [
+        {
+          "caption": "Bonfire. Play it on NEAR testnet, no wallet needed."
+        },
+        {
+          "caption": "Would you throw early, or wait and snipe?",
+          "noCaption": true
+        }
+      ],
+      "clip": {
+        "from": "banner:Night 30 +1.5",
+        "dur": 8.0,
+        "zoom": {
+          "from": [
+            380,
+            222,
+            520
+          ],
+          "to": [
+            405,
+            232,
+            470
+          ],
+          "in": 8.0
+        }
+      }
+    }
+  ]
+}
