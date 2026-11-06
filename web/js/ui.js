@@ -1,6 +1,6 @@
 // DOM helpers: the strip of last nights, the supply chart, records, the proof drawer and the
 // "How it works" text. Everything that comes from the chain goes in through textContent or esc().
-import { fmtDuration, fmtEmber, fmtFactor, fmtInt, fmtPct, toWhole } from './logic.js'
+import { fmtDuration, fmtEmber, fmtFactor, fmtInt, fmtPct, fmtWhole, toWhole } from './logic.js'
 
 export const $ = (id) => document.getElementById(id)
 const SVG = 'http://www.w3.org/2000/svg'
@@ -36,9 +36,9 @@ export function toast(text, kind = 'info', ms = 4200) {
 // ---- the strip of last nights -------------------------------------------------------------------
 
 const ICONS = {
-  lit: 'M12 2.5c.9 3.2 4.6 5.2 4.6 9.5a4.6 4.6 0 0 1-9.2 0c0-2.2 1.3-3.5 2.2-4.6.3 1.5.9 2.4 1.8 2.8-.3-2.8 0-5.6.6-7.7z',
-  smoke: 'M7.5 17a3.5 3.5 0 0 1-.6-6.95A5 5 0 0 1 16.4 8.6 3.6 3.6 0 0 1 17 17H7.5z',
-  empty: 'M6 16.5h12M7.5 19h9',
+  LIT: 'M12 2.5c.9 3.2 4.6 5.2 4.6 9.5a4.6 4.6 0 0 1-9.2 0c0-2.2 1.3-3.5 2.2-4.6.3 1.5.9 2.4 1.8 2.8-.3-2.8 0-5.6.6-7.7z',
+  SMOKED: 'M7.5 17a3.5 3.5 0 0 1-.6-6.95A5 5 0 0 1 16.4 8.6 3.6 3.6 0 0 1 17 17H7.5z',
+  COLD: 'M12 7.2a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 1 0 0-9.6z',
 }
 
 export function renderStrip(el, strip, { decimals, symbol, max = 24 }) {
@@ -50,24 +50,76 @@ export function renderStrip(el, strip, { decimals, symbol, max = 24 }) {
     el.appendChild(li)
     return
   }
-  const rows = strip.slice(-max)
-  for (const n of rows) {
+  for (const n of strip.slice(-max)) {
     const li = document.createElement('li')
-    li.className = `night ${n.outcome}`
-    const word = n.outcome === 'lit' ? 'caught fire' : n.outcome === 'smoke' ? 'went up in smoke' : 'stayed cold'
-    li.title = `Night ${n.night} ${word}: ${fmtEmber(n.pile, decimals)} of ${fmtEmber(n.target, decimals)} ${symbol}`
+    li.className = `night ${n.outcome.toLowerCase()}`
+    li.title = `Night ${n.night} · ${n.word} · ${fmtWhole(n.pile, decimals)} of ${fmtWhole(n.target, decimals)} ${symbol}`
     li.setAttribute('aria-label', li.title)
     const svg = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, li)
-    if (n.outcome === 'empty') svgEl('path', { d: ICONS.empty, class: 'stroke' }, svg)
-    else svgEl('path', { d: ICONS[n.outcome] }, svg)
-    const bar = document.createElement('span')
-    bar.className = 'bar'
-    const fill = document.createElement('i')
-    fill.style.setProperty('--h', `${Math.round(Math.min(1.5, n.pct) / 1.5 * 100)}%`)
-    bar.appendChild(fill)
-    li.appendChild(bar)
+    svgEl('path', { d: ICONS[n.outcome] ?? ICONS.COLD }, svg)
+    const cap = document.createElement('span')
+    cap.className = 'cap'
+    cap.textContent = n.outcome === 'LIT' ? `×${n.streak}` : ''
+    li.appendChild(cap)
     el.appendChild(li)
   }
+}
+
+// ---- the night's quarters -----------------------------------------------------------------------
+
+/** The hero's small bar: one segment per window, the current one filling as time passes. */
+export function renderQuarters(el, win, now) {
+  if (el.childElementCount !== win.count) {
+    el.replaceChildren()
+    for (let i = 0; i < win.count; i++) {
+      const seg = document.createElement('span')
+      seg.appendChild(document.createElement('i'))
+      el.appendChild(seg)
+    }
+  }
+  win.segments.forEach((sg, i) => {
+    const seg = el.children[i]
+    seg.className = `q ${sg.when}`
+    const p = sg.when === 'past' ? 1 : sg.when === 'now' ? Math.min(1, Math.max(0, (now - sg.startMs) / (sg.endMs - sg.startMs))) : 0
+    seg.firstChild.style.setProperty('--p', `${(p * 100).toFixed(1)}%`)
+  })
+  el.setAttribute('aria-label', win.due ? 'The night is over' : `Quarter ${win.current + 1} of ${win.count}`)
+}
+
+/**
+ * The Tonight card's windows: each window's wood as a bar and the factor its wood earns; the
+ * current window marked "now".
+ */
+export function renderWindows(el, win, now, { decimals }) {
+  if (el.childElementCount !== win.count) {
+    el.replaceChildren()
+    for (let i = 0; i < win.count; i++) {
+      const col = document.createElement('div')
+      col.className = 'w'
+      const bar = document.createElement('div')
+      bar.className = 'w-bar'
+      bar.appendChild(document.createElement('i'))
+      const mine = document.createElement('b')
+      mine.className = 'w-mine'
+      bar.appendChild(mine)
+      const l = document.createElement('span')
+      l.className = 'w-label'
+      col.append(bar, l)
+      el.appendChild(col)
+    }
+  }
+  const most = win.segments.reduce((m, sg) => (sg.wood > m ? sg.wood : m), 0n)
+  win.segments.forEach((sg, i) => {
+    const col = el.children[i]
+    col.className = `w ${sg.when}`
+    const h = most > 0n ? Number((sg.wood * 1000n) / most) / 10 : 0
+    col.firstChild.firstChild.style.setProperty('--h', `${sg.wood > 0n ? Math.max(8, h) : 0}%`)
+    col.firstChild.children[1].hidden = sg.mine <= 0n
+    // past windows show what their wood earns, the current one says "now", later ones their name
+    col.children[1].textContent = sg.when === 'now' ? 'now' : sg.when === 'past' ? (sg.factorBp == null ? '–' : fmtFactor(sg.factorBp)) : `Q${i + 1}`
+    col.title = `Quarter ${i + 1}: ${fmtWhole(sg.wood, decimals)} wood${sg.factorBp != null ? `, counts ${fmtFactor(sg.factorBp)}` : ''}${sg.mine > 0n ? ', yours among it' : ''}`
+  })
+  void now
 }
 
 // ---- the supply chart ---------------------------------------------------------------------------
@@ -87,7 +139,10 @@ export function renderChart(host, series, { symbol }) {
   }
   const W = Math.max(280, host.clientWidth || 560)
   const H = Math.max(190, Math.min(320, host.clientHeight || 190))
-  const pad = { l: 58, r: 14, t: 14, b: 26 }
+  // a supply that moves by a few per mille needs whole numbers on the axis to tell its ticks apart
+  const fine = Math.max(...series.map((d) => d.supply)) - Math.min(...series.map((d) => d.supply)) < Math.max(...series.map((d) => d.supply)) * 0.02
+  const tickText = (v) => (fine ? fmtInt(Math.round(v)) : compactNumber(v))
+  const pad = { l: fine ? 74 : 58, r: 14, t: 14, b: 26 }
   const xs = series.map((d) => d.night)
   const ys = series.map((d) => d.supply)
   let lo = Math.min(...ys)
@@ -102,7 +157,7 @@ export function renderChart(host, series, { symbol }) {
   for (const v of ticks) {
     svgEl('line', { x1: pad.l, x2: W - pad.r, y1: y(v), y2: y(v), class: 'grid' }, svg)
     const t = svgEl('text', { x: pad.l - 8, y: y(v) + 4, class: 'axis', 'text-anchor': 'end' }, svg)
-    t.textContent = compactNumber(v)
+    t.textContent = tickText(v)
   }
   for (const [n, anchor] of [
     [xs[0], 'start'],
@@ -138,7 +193,7 @@ export function renderChart(host, series, { symbol }) {
     const v = document.createElement('b')
     v.textContent = `${fmtInt(Math.round(d.supply))} ${symbol}`
     const s = document.createElement('span')
-    s.textContent = `Night ${d.night} · ${d.outcome === 'lit' ? 'lit' : d.outcome === 'smoke' ? 'smoke' : 'cold'}`
+    s.textContent = `Night ${d.night} · ${d.outcome}`
     tip.append(v, s)
     tip.hidden = false
     const scale = host.clientWidth / W || 1
@@ -188,7 +243,7 @@ function compactNumber(v) {
 
 // ---- proof drawer -------------------------------------------------------------------------------
 
-export function proofHtml({ mock, contract, keys, codeHash, account, gasAccount, rpcHost, txs, explorer, deployed }) {
+export function proofHtml({ mock, deployment, contract, keys, codeHash, account, gasAccount, rpcHost, txs, explorer, deployed, owed }) {
   const link = (path, text) => (mock ? `<code>${esc(text)}</code>` : `<a href="${esc(explorer)}/${path}" target="_blank" rel="noopener">${esc(text)}</a>`)
   const keyLine =
     keys == null
@@ -208,14 +263,15 @@ export function proofHtml({ mock, contract, keys, codeHash, account, gasAccount,
     : '<li class="muted">No transactions from this tab yet.</li>'
   return `
     ${mock ? '<p class="mock-note">Mock mode: made-up data in this tab. Nothing below is on chain.</p>' : ''}
-    <p>Everything on this page is read from NEAR ${mock ? '(here: a stand-in)' : 'testnet'}. Your moves are transactions signed by a key this browser made; a public gas pool pays the fees.</p>
+    <p>Everything on this page is read from NEAR ${mock ? '(here: a stand-in)' : 'testnet'}. Your moves are transactions signed by a key this browser made; a public gas pool pays the fees. Its keys may only call <code>act</code>, <code>settle</code> and <code>collect</code>.</p>
     <ul class="proof-list">
-      <li><span>Contract</span>${link(`address/${contract}`, contract)}</li>
+      <li><span>Contract</span><span>${link(`address/${contract}`, contract)}${deployment === 'stage' ? ' <span class="muted">(staging)</span>' : ''}</span></li>
       <li><span>Its keys</span><span>${keyLine}</span></li>
       <li><span>Code hash</span><code>${esc(codeHash ?? '–')}</code></li>
       <li><span>You</span>${link(`address/${account}`, account)}</li>
       <li><span>Gas paid by</span><code>${esc(gasAccount)}</code></li>
       <li><span>RPC</span><code>${esc(rpcHost)}</code></li>
+      ${owed ? `<li><span>Owed</span><span>${esc(owed.amount)} EMBER <span class="muted">to throwers of ${owed.nights} settled night${owed.nights === 1 ? '' : 's'}, until they collect</span></span></li>` : ''}
     </ul>
     <h3>Your transactions</h3>
     <ul class="tx-list">${rows}</ul>
@@ -232,17 +288,19 @@ export function howHtml(cfg) {
   const sym = esc(c.symbol)
   const amt = (u) => `${fmtEmber(u, d)} ${sym}`
   const keep = 100 - Number(c.hearth_cut_bp) / 100
+  const quarter = c.pool_windows === 4 ? 'quarter' : 'window'
   return `
     <ol class="how-list">
       <li><b>One night, one pile.</b> A night lasts ${esc(fmtDuration(Number(c.night_ms)))}. Throw ${sym} on the pile before dawn; it is locked until the night ends.</li>
-      <li><b>Lit.</b> If the pile reaches the target, all wood goes back and ${fmtPct(c.mint_bp)} of the target is minted as new ${sym}: ${keep} % to the throwers by weight, the rest to the hearth. The next target is ${fmtPct(c.grow_bp)} higher.</li>
-      <li><b>Smoke.</b> If it falls short, ${fmtPct(c.smoke_bp)} of the pile burns and the rest goes back. The hearth burns ${fmtPct(c.hearth_burn_bp)}. The next target is ${fmtPct(c.shrink_bp)} lower.</li>
-      <li><b>Early wood earns more.</b> Wood counts ${fmtFactor(c.early_max_bp)} at dusk, falling to ×1 at dawn. Wood thrown after the pile is already big enough counts ${fmtFactor(c.late_lit_bp)}.</li>
+      <li><b>LIT.</b> If the pile reaches the target, all wood comes back and ${fmtPct(c.mint_bp)} of the target is minted as new ${sym}: ${keep} % to the throwers by weight, the rest to the hearth. The next target is ${fmtPct(c.grow_bp)} higher.</li>
+      <li><b>SMOKED.</b> If it falls short, ${fmtPct(c.smoke_bp)} of the pile burns and the rest comes back. The hearth burns ${fmtPct(c.hearth_burn_bp)}, at most one night's mint. The next target is ${fmtPct(c.shrink_bp)} lower. <b>COLD</b>: no wood, nothing burns, the target shrinks.</li>
+      <li><b>Wood on a cold pile earns most.</b> Wood counts ${fmtFactor(c.early_max_bp)} on an empty pile, falling to ×1 at the target, and ${fmtFactor(c.late_lit_bp)} above it. The night has ${c.pool_windows} ${quarter}s: wood thrown in the same ${quarter} shares its spot in the pile, so being first in a block wins nothing.</li>
+      <li><b>Names.</b> The first to throw is the night's <i>Firestarter</i>; the throw that reaches the target is the <i>Last Log</i>.</li>
+      <li><b>Collecting.</b> Dawn only records what each thrower is owed. It is credited with your next move, or with one tap; anyone may collect for anyone.</li>
       <li><b>Kindling.</b> Newcomers get ${amt(c.kindling)} from the hearth, once, ${fmtInt(c.kindling_per_night)} per night.</li>
-      <li><b>No owner.</b> Every rule above is fixed at launch. The contract account has no keys, so nobody can change it. Open <i>Proof</i> to check.</li>
-      <li><b>No wallet.</b> Your browser holds a key for an implicit account and signs your moves; a public gas pool relays them. Clearing site data loses that key.</li>
+      <li><b>No owner, no wallet.</b> Every rule is fixed at launch and the contract account has no keys (open <i>Proof</i> to check). Your browser holds a key for an implicit account and signs your moves; a public gas pool relays them. Clearing site data loses that key.</li>
     </ol>
-    <p class="muted fine">Splitting ${sym} over many accounts earns nothing extra: rewards follow wood and timing, not accounts. Kindling is the one per-account gift, so it is capped per night and paid from a finite hearth.</p>`
+    <p class="muted fine">Splitting ${sym} over many accounts earns nothing extra: rewards follow wood and its ${quarter}, not accounts. Kindling is the one per-account gift, so it is capped per night and paid from a finite hearth.</p>`
 }
 
 // ---- drawer -------------------------------------------------------------------------------------

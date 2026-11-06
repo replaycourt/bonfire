@@ -265,20 +265,31 @@ export class Scene {
     this.flying.push({ from, to: { x: this.cx + (Math.random() - 0.5) * 50 * this.u, y: this.pileTop() + 6 * this.u }, t0: this.t, dur: 0.75, spin: (Math.random() - 0.5) * 9, text })
   }
 
-  /** The night has been settled: 'lit' roars, 'smoke' and 'empty' sink into grey. */
+  /** A short line over the fire, for a firestarter or a last log, with a puff of sparks. */
+  cheer(text, big = false) {
+    const y = this.pileTop() - 46 * this.u
+    this.floats.push({ text, x: this.cx, y, t0: this.t, life: 2.6 })
+    if (!this.reduced) for (let i = 0; i < (big ? 46 : 18); i++) this.spark(this.cx + (Math.random() - 0.5) * 40 * this.u, this.pileTop(), big ? 2.2 : 1.5)
+  }
+
+  /** The night has been settled: 'LIT' roars, 'SMOKED' and 'COLD' sink into grey. */
   outcome(kind) {
+    kind = String(kind).toLowerCase()
     // the night's pile stays on screen while it burns (lit) or smoulders (smoke)
     this.ash = { pct: Math.max(this.pct, this.pctTarget), t0: this.t, kind }
     if (kind === 'lit') {
-      this.roar = this.reduced ? 9 : 9
+      this.roar = 9
       this.smokeOut = 0
+      this.coldNight = false
       this.heatGoal = 1.65
       if (!this.reduced) this.burst(120)
     } else {
-      this.smokeOut = 10
+      // a cold night had no wood: no plume, just a dark, quiet pit for a while
+      this.smokeOut = kind === 'cold' ? 7 : 10
+      this.coldNight = kind === 'cold'
       this.roar = 0
       this.heatGoal = 0.03
-      this.veilGoal = 1
+      this.veilGoal = kind === 'cold' ? 0.7 : 1
     }
   }
 
@@ -359,7 +370,7 @@ export class Scene {
       const rate = (this.cold ? 0 : 3 + 40 * Math.pow(this.heat, 2.2)) * dt
       for (let i = 0; i < rate || (i === 0 && Math.random() < rate); i++) this.spark()
       // smoke: a thin wisp always, a column after a smoky night
-      const smokeRate = (this.smokeOut > 0 ? (this.smokeOut > 4 ? 26 : 10) : this.cold ? 1.6 : 0.9) * dt
+      const smokeRate = (this.smokeOut > 0 ? (this.coldNight ? 2.5 : this.smokeOut > 4 ? 26 : 10) : this.cold ? 1.6 : 0.9) * dt
       if (Math.random() < smokeRate - Math.floor(smokeRate) || smokeRate >= 1) for (let i = 0; i < Math.max(1, Math.floor(smokeRate)); i++) this.puff()
     }
     for (const p of this.sparks) {
@@ -425,7 +436,7 @@ export class Scene {
 
   puff() {
     const u = this.u
-    const heavy = this.smokeOut > 0
+    const heavy = this.smokeOut > 0 && !this.coldNight
     this.smoke.push({
       x: this.cx + (Math.random() - 0.5) * (heavy ? 110 : 50) * u,
       y: this.flameBase() - (heavy ? 10 : this.flameH() * 0.8) * u,

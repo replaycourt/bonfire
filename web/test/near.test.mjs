@@ -242,3 +242,17 @@ test('identity is created once and loaded again from storage', async () => {
   assert.deepEqual([...(await N.sign(a.key, N.utf8('m')))], [...(await N.sign(b.key, N.utf8('m')))])
   assert.ok(store.has('bonfire:key:v1'))
 })
+
+test('Client.collect relays collect for any account; estimate and recent_throws are views', async () => {
+  const relayed = []
+  const pool = { empty: false, relay: async (receiver, method, args, gas) => (relayed.push({ receiver, method, args, gas }), { hash: 'C', gas: 1, failure: null, value: { amount: '5' } }) }
+  const views = []
+  const rpc = { view: async (contract, method, args) => (views.push({ contract, method, args }), []) }
+  const c = new Client({ rpc, contract: 'bonfire-stage.testnet', pool })
+  assert.deepEqual(await c.collect('someone.testnet'), { amount: '5' })
+  assert.deepEqual(relayed[0], { receiver: 'bonfire-stage.testnet', method: 'collect', args: { account_id: 'someone.testnet' }, gas: 30_000_000_000_000n })
+  assert.equal(c.txs[0].kind, 'collect')
+  await c.estimate(5n)
+  await c.recentThrows()
+  assert.deepEqual(views.map((v) => [v.method, v.args]), [['estimate', { amount: '5' }], ['recent_throws', undefined]])
+})

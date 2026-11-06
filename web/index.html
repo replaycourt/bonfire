@@ -37,16 +37,18 @@
           <span class="night-label" id="night-label">Night</span>
           <b class="countdown" id="countdown">–:––</b>
           <span class="until" id="until">until dawn</span>
+          <span class="quarters" id="quarters" role="img" aria-label="Quarters of the night"></span>
         </div>
-        <p class="rules"><b>Throw wood before dawn.</b> <span>Enough wood: everyone gets their wood back plus new EMBER.</span> <span>Too little: some of it goes up in smoke.</span> <span>Early wood earns more.</span></p>
+        <p class="rules"><b>Throw wood before dawn.</b> <span>Enough wood: everyone gets their wood back plus new EMBER.</span> <span>Too little: some of it goes up in smoke.</span> <span>Wood on a cold pile earns most.</span></p>
       </div>
       <div id="banner" class="banner" role="status" hidden>
         <span class="banner-kicker" id="banner-kicker"></span>
         <b class="banner-title" id="banner-title"></b>
         <span class="banner-text" id="banner-text"></span>
+        <span class="banner-names" id="banner-names"></span>
       </div>
       <div class="strip-row">
-        <span class="strip-label">Last nights</span>
+        <span class="strip-label">Last nights <b id="strip-word"></b></span>
         <ol class="strip" id="strip" aria-label="The last nights, oldest first"></ol>
       </div>
     </div>
@@ -62,8 +64,15 @@
         <div class="meter-goal"></div>
       </div>
       <div class="meter-legend"><span><b id="pile-num">0</b> on the pile</span><span>target <b id="target-num">–</b></span></div>
+      <div class="windows-head"><span>Wood counts now</span><b id="early">–</b></div>
+      <div class="windows" id="windows" aria-label="Wood per quarter of the night"></div>
+      <p class="windows-rule">Wood on a cold pile earns most. Wood thrown in the same quarter shares its spot.</p>
+      <p class="fine" id="window-closes"></p>
+      <dl class="names">
+        <div><dt>Firestarter</dt><dd id="firestarter">–</dd></div>
+        <div><dt>Last log</dt><dd id="last-log">–</dd></div>
+      </dl>
       <dl class="facts">
-        <div><dt>Early bonus now</dt><dd id="early">–</dd></div>
         <div><dt>Throwers</dt><dd id="throwers">–</dd></div>
         <div><dt>Streak</dt><dd id="streak">–</dd></div>
         <div><dt>Hearth</dt><dd id="hearth">–</dd></div>
@@ -74,6 +83,10 @@
     <aside class="card you" id="you" aria-labelledby="you-title">
       <h2 class="card-title" id="you-title">Your wood</h2>
       <div class="balance"><span class="label">Your EMBER</span><b id="balance">–</b></div>
+      <div class="ready" id="ready" hidden>
+        <div><b id="ready-amount"></b> <span id="ready-text"></span></div>
+        <button id="btn-collect" class="collect" type="button">Collect</button>
+      </div>
       <button id="btn-kindle" class="kindle" type="button" hidden>
         <span class="btn-title">Get kindling</span>
         <span class="btn-sub" id="kindle-sub">free EMBER from the hearth, once</span>
@@ -109,7 +122,7 @@
         <img id="coin-face" class="coin-face" src="favicon.svg" alt="The EMBER icon">
         <div>
           <h2>The coin's face</h2>
-          <p>The contract draws it from last night's fire, with the streak underneath. Every wallet that lists EMBER shows it.</p>
+          <p>The contract draws it from its own state: last night's word and fire, and the last seven nights along the bottom. Every wallet that lists EMBER shows it.</p>
         </div>
       </div>
     </div>

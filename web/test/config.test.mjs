@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CONTRACT, GAS_ACCOUNT, GAS_KEYS, RPC_HOSTS } from '../js/config.js'
+import { CONTRACT, DEPLOYMENTS, GAS_ACCOUNT, GAS_KEYS, RPC_HOSTS, pickDeployment } from '../js/config.js'
 
 const WEB = fileURLToPath(new URL('..', import.meta.url))
 const html = readFileSync(join(WEB, 'index.html'), 'utf8')
@@ -23,10 +23,19 @@ test('the CSP is strict and connects only to the configured RPC hosts', () => {
   for (const h of RPC_HOSTS) assert.match(h, /^https:\/\/[a-z0-9.-]+$/)
 })
 
-test('one config module names the deployment; no gas keys before the pool exists', () => {
+test('one config module names the deployments: the final contract by default, staging on request', () => {
   assert.equal(CONTRACT, 'bonfire-coin.testnet')
   assert.equal(GAS_ACCOUNT, 'bonfire-gas.testnet')
   assert.ok(Array.isArray(GAS_KEYS))
+  assert.equal(pickDeployment('?contract=stage').contract, 'bonfire-stage.testnet')
+  assert.equal(pickDeployment('?contract=final').contract, 'bonfire-coin.testnet')
+  assert.equal(pickDeployment('?contract=evil.testnet').contract, 'bonfire-coin.testnet', 'only known names')
+  assert.equal(pickDeployment('?contract=__proto__').name, 'final')
+  assert.equal(pickDeployment('').name, 'final')
+  for (const d of Object.values(DEPLOYMENTS)) {
+    assert.match(d.contract, /^[a-z0-9-]+\.testnet$/)
+    assert.ok(Array.isArray(d.gasKeys))
+  }
 })
 
 test('mock mode needs ?mock=1 and is loaded only then', () => {

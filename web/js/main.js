@@ -1,11 +1,11 @@
-// The page controller: boots the scene, reads the contract, settles nights that are due, turns taps
-// into signed actions and the chain's answers into pictures.
+// The page controller: boots the scene, reads the contract, settles nights that are due, collects
+// what settled nights owe, turns taps into signed actions and the chain's answers into pictures.
 //
 // Mock mode runs only with `?mock=1` in the URL; without it the page talks to NEAR testnet and shows
 // nothing that did not come from the chain.
 import { ed25519Supported } from './near.js'
 import { ActionQueue, Client, FriendlyError, loadOrCreateIdentity, notDeployed } from './chain.js'
-import { CODE_HASH, CONTRACT, EXPLORER, GAS_ACCOUNT } from './config.js'
+import { CODE_HASH, CONTRACT, DEPLOYMENT, EXPLORER, GAS_ACCOUNT, HELP_COLLECTS_PER_VISIT } from './config.js'
 import { Scene } from './scene.js'
 import { Sound } from './audio.js'
 import * as L from './logic.js'
@@ -14,19 +14,21 @@ import * as U from './ui.js'
 const params = new URLSearchParams(location.search)
 const MOCK = params.get('mock') === '1'
 const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+const phone = () => window.matchMedia('(max-width: 900px)').matches
 
 const S = {
   cfg: null,
   state: null,
   holder: null,
-  tonight: null,
+  recent: [],
+  seen: null, // keys of recent throws already shown
   model: null,
   history: [],
   offset: null,
   offsetAt: 0,
   lastSettled: null,
-  woodSeen: new Map(), // account -> wood on tonight's pile, to spot new throws
-  woodNight: null,
+  nightThrowers: null, // { night, list }: who sat at the fire of the night on screen
+  seatHold: null,
   settling: false,
   lastSettleTry: 0,
   pollTimer: null,
@@ -37,8 +39,15 @@ const S = {
   deployed: true,
   icon: null,
   selected: null, // index of the throw chip the hint describes
+  estimate: null, // { key, est }
+  estimating: null,
   bannerTimer: null,
   canSign: true,
+  helped: 0, // collections relayed for other throwers this visit
+  tried: new Set(),
+  helpTimer: null,
+  firestarter: null,
+  lastLog: null,
 }
 
 let client
@@ -59,7 +68,7 @@ async function boot() {
   if (MOCK) {
     const { MockClient } = await import('./mock.js')
     const nightS = Number(params.get('night')) || 300
-    client = new MockClient({ scene: params.get('scene') || 'live', nightMs: Math.max(20, nightS) * 1000 })
+    client = new MockClient({ scene: params.get('scene') || 'live', nightMs: Math.max(20, nightS) * 1000, contract: CONTRACT })
     U.$('mock-badge').hidden = false
     document.title = 'MOCK · ' + document.title
   } else {
@@ -87,6 +96,7 @@ async function boot() {
   loadIcon()
   setInterval(tickClock, 250)
   document.addEventListener('visibilitychange', () => schedule(document.hidden ? 8000 : 300))
+  scheduleHelp(25_000)
 }
 
 function bootFailed(e) {
@@ -98,7 +108,7 @@ function bootFailed(e) {
     scene.setNight({ progress: 0.3, pct: 0.4, reached: false, pileText: '', targetText: '', cold: true })
     U.setText('night-label', 'Bonfire')
     U.setText('countdown', 'Not lit yet')
-    U.setText('until', `the contract ${CONTRACT} is not on NEAR testnet yet`)
+    U.setText('until', `the contract ${CONTRACT} is not live on NEAR testnet yet`)
     showNote('The fire has not been lit yet. Once the contract is live, this page shows tonight’s pile and lets you throw wood.')
     return
   }
@@ -112,8 +122,7 @@ function bootFailed(e) {
 }
 
 function layout() {
-  const phone = window.matchMedia('(max-width: 900px)').matches
-  scene.setLayout({ cx: 0.5, by: phone ? 0.82 : 0.75, scale: phone ? 1.28 : 1.12, moonY: phone ? 0.47 : 0.32 })
+  scene.setLayout({ cx: 0.5, by: phone() ? 0.82 : 0.75, scale: phone() ? 1.28 : 1.12, moonY: phone() ? 0.47 : 0.32 })
 }
 
 function wire() {
@@ -128,6 +137,7 @@ function wire() {
     renderSound()
   })
   U.$('btn-kindle').addEventListener('click', onKindle)
+  U.$('btn-collect').addEventListener('click', onCollect)
   U.$('drawer-close').addEventListener('click', U.closeDrawer)
   U.$('drawer-backdrop').addEventListener('click', U.closeDrawer)
   document.addEventListener('keydown', (e) => e.key === 'Escape' && U.drawerOpen() && U.closeDrawer())
@@ -144,6 +154,7 @@ function renderSound() {
 // ---- the poll loop ------------------------------------------------------------------------------
 
 const chainNow = () => Date.now() + (S.offset ?? 0)
+const clockNow = () => L.clockNight(chainNow(), Number(S.cfg.genesis_ms), Number(S.cfg.config.night_ms))
 
 function schedule(ms) {
   clearTimeout(S.pollTimer)
@@ -154,24 +165,23 @@ async function poll() {
   clearTimeout(S.pollTimer)
   try {
     const me = client.identity?.account
-    const [state, holder] = await Promise.all([client.state(), me ? client.holder(me) : Promise.resolve(null)])
+    const [state, holder, recent] = await Promise.all([client.state(), me ? client.holder(me) : Promise.resolve(null), client.recentThrows().catch(() => S.recent)])
     noteClock(state.now_ms)
     S.state = state
     if (holder) S.holder = holder
-    const before = S.tonight
-    if (state.throwers !== (S.tonight?.throwers?.length ?? -1) || state.night !== S.tonight?.night || state.pile !== S.tonight?.pile) {
-      S.tonight = await client.night(state.night)
-      spotThrows()
-    }
+    S.recent = recent ?? []
+    spotThrows()
     const lastNight = state.last?.night ?? 0
     if (S.lastSettled === null) S.lastSettled = lastNight
     else if (lastNight > S.lastSettled) {
       S.lastSettled = lastNight
-      onSettled(state.last, before)
+      onSettled(state.last)
     }
+    spotNames(state)
     S.failures = 0
     render()
     if (S.model.due) settleSoon()
+    refreshEstimate()
   } catch (e) {
     S.failures++
     console.info('poll', e?.message ?? e)
@@ -189,22 +199,27 @@ function noteClock(nowMs) {
   }
 }
 
-/** New wood on tonight's pile from someone: a log flies from their seat. */
+/** New throws by others in `recent_throws`: a log flies from their seat. */
 function spotThrows() {
-  const t = S.tonight
-  if (!t) return
   const me = client.identity?.account
-  const fresh = S.woodNight !== t.night
-  for (const th of t.throwers) {
-    const now = L.big(th.wood)
-    const before = S.woodSeen.get(th.account) ?? 0n
-    if (!fresh && now > before && th.account !== me) {
-      scene.throwFrom(th.account, '+' + L.fmtEmber(now - before, S.cfg.config.decimals))
+  const keys = S.recent.map(L.throwKey)
+  if (S.seen) {
+    S.recent.forEach((t, i) => {
+      if (S.seen.has(keys[i]) || t.account === me || t.night !== S.state.night) return
+      scene.throwFrom(t.account, '+' + L.fmtEmber(t.amount, S.cfg.config.decimals))
       sound.thud()
-    }
+    })
   }
-  S.woodSeen = new Map(t.throwers.map((th) => [th.account, L.big(th.wood)]))
-  S.woodNight = t.night
+  S.seen = new Set(keys)
+}
+
+/** The night's firestarter and last log, the moment they happen. */
+function spotNames(state) {
+  const me = client.identity?.account
+  if (state.firestarter && S.firestarter !== null && S.firestarter !== state.firestarter && state.firestarter) scene.cheer(`${L.nameOf(state.firestarter, me)} lit the first log`)
+  if (state.last_log && S.lastLog !== null && !S.lastLog && state.last_log) scene.cheer(`Last log: ${L.nameOf(state.last_log.account, me)}`, true)
+  S.firestarter = state.firestarter ?? ''
+  S.lastLog = state.last_log ?? ''
 }
 
 async function settleSoon() {
@@ -222,30 +237,31 @@ async function settleSoon() {
   }
 }
 
-async function onSettled(last, before) {
+async function onSettled(last) {
   // while last night burns, its throwers stay at the fire
-  if (before?.night === last.night) S.seatHold = { throwers: before.throwers, until: Date.now() + 9500 }
+  if (S.nightThrowers?.night === last.night) S.seatHold = { list: S.nightThrowers.list, until: Date.now() + 9500 }
   scene.outcome(last.outcome)
-  if (last.outcome === 'lit') sound.roar()
+  if (last.outcome === 'LIT') sound.roar()
   else sound.hiss()
-  const dec = S.cfg.config.decimals
   let result = null
   try {
-    result = L.nightResult(await client.night(last.night), client.identity?.account, dec, S.cfg.config.symbol)
+    result = L.nightResult(await client.night(last.night), S.holder, client.identity?.account, S.cfg.config.decimals, S.cfg.config.symbol)
   } catch {
     /* the banner falls back to the outcome alone */
   }
   showBanner(last, result)
   loadHistory()
   loadIcon()
+  scheduleHelp(15_000 + Math.random() * 15_000)
 }
 
 function showBanner(last, result) {
   const el = U.$('banner')
-  el.className = `banner ${last.outcome}`
-  U.setText('banner-kicker', `Night ${last.night}`)
-  U.setText('banner-title', last.outcome === 'lit' ? 'The fire caught!' : last.outcome === 'smoke' ? 'Up in smoke' : 'A cold night')
+  el.className = `banner ${last.outcome.toLowerCase()}`
+  U.setText('banner-kicker', `Night ${last.night} · ${result?.word ?? last.outcome}`)
+  U.setText('banner-title', result?.title ?? (last.outcome === 'LIT' ? 'The fire caught!' : last.outcome === 'SMOKED' ? 'Up in smoke' : 'A cold night'))
   U.setText('banner-text', result?.text ?? '')
+  U.setText('banner-names', result?.names ?? '')
   el.hidden = false
   document.body.classList.add('banner-on')
   clearTimeout(S.bannerTimer)
@@ -279,6 +295,36 @@ async function loadIcon() {
   }
 }
 
+// ---- collecting for others ----------------------------------------------------------------------
+
+/**
+ * A settled night keeps its record until its last thrower collects. The page relays a few
+ * collections per visit for throwers it sees in `recent_throws`, after checking they are owed.
+ */
+function scheduleHelp(ms) {
+  clearTimeout(S.helpTimer)
+  if (!client.canAct || S.helped >= HELP_COLLECTS_PER_VISIT) return
+  S.helpTimer = setTimeout(helpCollect, ms)
+}
+
+async function helpCollect() {
+  if (!S.state || !client.canAct || queue.busy) return
+  const me = client.identity?.account
+  const left = HELP_COLLECTS_PER_VISIT - S.helped
+  for (const account of L.collectCandidates(S.recent, S.state.night, me, S.tried, Math.min(2, left))) {
+    S.tried.add(account)
+    try {
+      const h = await client.holder(account)
+      if (L.big(h.pending) <= 0n) continue
+      await client.collect(account)
+      S.helped++
+    } catch (e) {
+      console.info('collect for', account.slice(0, 12), e?.message ?? e)
+      return
+    }
+  }
+}
+
 // ---- actions ------------------------------------------------------------------------------------
 
 function onThrow(choice) {
@@ -287,8 +333,7 @@ function onThrow(choice) {
   sound.enable()
   const amount = choice.amount
   // name the night the chain's clock says now; `act` settles an ended night before the throw lands
-  const night = L.clockNight(chainNow(), Number(S.cfg.genesis_ms), m.nightMs)
-  queue.push({ kind: 'throw', amount, night, build() {
+  queue.push({ kind: 'throw', amount, night: clockNow(), build() {
     return L.throwAction(this.amount, this.night)
   } })
   scene.throwFrom(client.identity.account, '+' + L.fmtEmber(amount, m.dec))
@@ -300,46 +345,91 @@ function onKindle() {
   const m = S.model
   if (!m?.kindle.can || !client.canAct) return
   sound.enable()
-  const night = L.clockNight(chainNow(), Number(S.cfg.genesis_ms), m.nightMs)
+  const night = clockNow()
   queue.push({ kind: 'kindling', build: () => L.kindlingAction(night) })
   U.$('btn-kindle').disabled = true
   renderYou()
 }
 
+function onCollect() {
+  const m = S.model
+  if (!m || m.pending <= 0n || !client.canAct) return
+  sound.enable()
+  const night = clockNow()
+  queue.push({ kind: 'collect', build: () => L.collectAction(night) })
+  U.$('btn-collect').disabled = true
+  renderYou()
+}
+
 function onDone(out, item) {
+  const m = S.model
   if (!out?.ok) {
     sound.refuse()
     U.toast(refusal(out?.error, item), 'warn', 6000)
   } else if (item.kind === 'kindling') {
     sound.chime()
-    U.toast(`${L.fmtEmber(S.model.kindling, S.model.dec)} EMBER of kindling is yours. Throw some on the fire.`, 'ok')
+    U.toast(`${L.fmtEmber(m.kindling, m.dec)} EMBER of kindling is yours. Throw some on the fire.`, 'ok')
+  } else if (L.big(out.collected) > 0n) {
+    sound.chime()
+    U.toast(`${L.fmtEmber(out.collected, m.dec)} EMBER collected from your last night.`, 'ok')
   }
   U.$('btn-kindle').disabled = false
+  U.$('btn-collect').disabled = false
   schedule(100)
 }
 
 function onError(err, item) {
   sound.refuse()
-  U.toast(err instanceof FriendlyError ? err.message : `That ${item.kind === 'throw' ? 'throw' : 'claim'} did not go through. Nothing was lost.`, 'warn', 6000)
+  const what = { throw: 'throw', kindling: 'claim', collect: 'collection' }[item.kind] ?? 'action'
+  U.toast(err instanceof FriendlyError ? err.message : `That ${what} did not go through. Nothing was lost.`, 'warn', 6000)
   U.$('btn-kindle').disabled = false
+  U.$('btn-collect').disabled = false
   schedule(100)
 }
 
 function refusal(error = '', item) {
   if (/is for night/.test(error)) return item.kind === 'throw' ? 'Dawn came first. Your wood is still yours: throw it on tonight’s fire.' : 'Dawn came first. Try again for tonight.'
-  if (/handed out/.test(error)) return 'Tonight’s kindling is all handed out. Come back next night.'
+  if (/handed out/.test(error)) return 'Tonight’s kindling is handed out. Come back next night.'
   if (/never held/.test(error)) return 'Kindling is only for newcomers, and this account already has EMBER.'
   if (/not enough/.test(error)) return 'Not enough free EMBER for that throw.'
-  if (/room for|seats/.test(error)) return 'Every seat at tonight’s fire is taken. Come early next night.'
+  if (/smallest throw/.test(error)) return 'That throw is below the smallest one the fire takes.'
   return `The fire keeper said no: ${error}`
+}
+
+// ---- the share preview, from estimate(amount) -----------------------------------------------------
+
+/** Asks the contract what the selected throw would weigh now; at most one request in flight. */
+async function refreshEstimate() {
+  const m = S.model
+  const c = selectedChoice()
+  if (!m || !c || m.due || S.estimating) return
+  const key = `${c.amount}|${m.pile}|${m.windows.current}|${m.night}`
+  if (S.estimate?.key === key) return
+  S.estimating = key
+  try {
+    const est = await client.estimate(c.amount)
+    S.estimate = { key, est }
+  } catch {
+    S.estimate = { key, est: L.estimateLocal({ cfg: S.cfg, state: S.state, amount: c.amount, nowMs: chainNow() }) }
+  } finally {
+    S.estimating = null
+  }
+  hint()
+}
+
+function selectedChoice() {
+  const choices = S.choices ?? []
+  if (!choices.length) return null
+  return choices[S.selected ?? Math.min(1, choices.length - 1)] ?? choices[0]
 }
 
 // ---- render -------------------------------------------------------------------------------------
 
 function render() {
   if (!S.cfg || !S.state) return
-  S.model = L.deriveModel({ cfg: S.cfg, state: S.state, holder: S.holder, tonight: S.tonight, nowMs: chainNow() })
+  S.model = L.deriveModel({ cfg: S.cfg, state: S.state, holder: S.holder, nowMs: chainNow() })
   const m = S.model
+  const me = client.identity?.account
   const f = (u) => L.fmtEmber(u, m.dec)
   const w = (u) => L.fmtWhole(u, m.dec)
   scene.setNight({
@@ -351,8 +441,12 @@ function render() {
     targetText: m.reached ? `✓ ${w(m.target)} reached` : `${w(m.target)} needed`,
   })
   sound.setHeat(scene.heat)
-  const held = S.seatHold && Date.now() < S.seatHold.until && (S.tonight?.throwers?.length ?? 0) < S.seatHold.throwers.length
-  const { shown, more } = L.seats(held ? S.seatHold.throwers : S.tonight?.throwers, client.identity?.account, window.matchMedia('(max-width: 900px)').matches ? 8 : 10)
+
+  // people around the fire: tonight's throwers as recent_throws names them, and the player
+  const list = L.throwersFromRecent(S.recent, m.night, me, m.myWood)
+  S.nightThrowers = { night: m.night, list }
+  const held = S.seatHold && Date.now() < S.seatHold.until && list.length < S.seatHold.list.length
+  const { shown, more } = L.seats(held ? S.seatHold.list : list, me, phone() ? 8 : 10, held ? 0 : m.throwers)
   scene.setSeats(shown, more)
   U.$('scene').setAttribute('aria-label', `Night ${m.night}: ${w(m.pile)} of ${w(m.target)} EMBER on the pile, ${m.throwers} throwers.`)
 
@@ -360,8 +454,7 @@ function render() {
   const h = L.headline(m)
   U.setText('need-big', h.big)
   U.setText('need-small', h.small)
-  const pct = Math.min(1, m.pct)
-  U.$('meter-fill').style.setProperty('--p', `${(pct * 100).toFixed(1)}%`)
+  U.$('meter-fill').style.setProperty('--p', `${(Math.min(1, m.pct) * 100).toFixed(1)}%`)
   U.$('meter').classList.toggle('reached', m.reached)
   U.$('meter').setAttribute('aria-valuenow', String(Math.round(m.pct * 100)))
   U.setText('pile-num', w(m.pile))
@@ -369,6 +462,10 @@ function render() {
   U.setText('throwers', String(m.throwers))
   U.setText('streak', m.streak === 1 ? '1 night' : `${m.streak} nights`)
   U.setText('hearth', L.fmtEmber(m.hearth, m.dec, { compact: true }))
+  U.setText('firestarter', m.firestarter ? L.nameOf(m.firestarter, me) : 'nobody yet')
+  U.$('firestarter').classList.toggle('muted', !m.firestarter)
+  U.setText('last-log', m.lastLog ? `${L.nameOf(m.lastLog.account, me)} · ${f(m.lastLog.amount)}` : m.reached ? '–' : 'not yet')
+  U.$('last-log').classList.toggle('muted', !m.lastLog)
   U.setText('kindling-left', m.kindlingLeft > 0 ? `Kindling left tonight: ${m.kindlingLeft} of ${m.kindlingPerNight}` : 'No kindling left tonight')
   renderYou()
   renderRecords()
@@ -385,9 +482,16 @@ function tickClock() {
   U.setText('countdown', due ? 'Dawn' : L.fmtCountdown(left))
   U.setText('until', due ? (client.canAct ? 'lighting the fire…' : 'the next visitor lights the fire') : 'until dawn')
   U.$('clock').classList.toggle('late', !due && left < m.nightMs * 0.15)
-  const early = L.earlyBp(Math.max(0, now - m.start), m.nightMs, S.cfg.config.early_max_bp)
-  U.setText('early', m.reached ? `${L.fmtFactor(S.cfg.config.late_lit_bp)} (pile is full)` : L.fmtFactor(early))
   if (scene) scene.progress = Math.min(1, Math.max(0, (now - m.start) / m.nightMs))
+  const win = L.windowsModel({ cfg: S.cfg, state: S.state, holder: S.holder, nowMs: now })
+  U.renderQuarters(U.$('quarters'), win, now)
+  U.renderWindows(U.$('windows'), win, now, { decimals: m.dec })
+  U.setText('early', win.due ? '–' : L.fmtFactor(win.nowFactorBp))
+  U.setText('window-closes', win.due ? 'The night is over.' : `Quarter ${win.current + 1} of ${win.count} closes in ${L.fmtCountdown(win.closesInMs)}.`)
+  if (win.current !== S.windowSeen) {
+    S.windowSeen = win.current
+    refreshEstimate()
+  }
 }
 
 function renderYou() {
@@ -397,8 +501,7 @@ function renderYou() {
   const pending = queue?.pendingWood() ?? 0n
   const balance = m.balance > pending ? m.balance - pending : 0n
   U.setText('balance', S.holder ? f(balance) : '–')
-  const wood = m.myWood + pending
-  U.setText('my-wood', f(wood))
+  U.setText('my-wood', f(m.myWood + pending))
   const share = U.$('my-share')
   if (m.myWood > 0n) {
     share.textContent = `+${f(m.reward)} new`
@@ -407,8 +510,17 @@ function renderYou() {
     share.textContent = pending > 0n ? 'counting…' : '–'
     share.className = ''
   }
-
   const canAct = client.canAct && S.canSign
+
+  // credit from a settled night
+  const ready = U.$('ready')
+  ready.hidden = !(m.pending > 0n && m.readyNight)
+  if (!ready.hidden) {
+    U.setText('ready-amount', `+${f(m.pending)}`)
+    U.setText('ready-text', `from night ${m.readyNight}, ready to collect. Your next throw collects it too.`)
+    U.$('btn-collect').disabled = !canAct || queue.busy
+  }
+
   const kindle = U.$('btn-kindle')
   const showKindle = m.kindle.can && m.balance === 0n && m.myWood === 0n
   kindle.hidden = !showKindle
@@ -432,14 +544,14 @@ function renderYou() {
       s.textContent = c.all ? f(c.amount) : 'EMBER'
       b.append(t, s)
       b.addEventListener('click', () => onThrow(c))
-      b.addEventListener('pointerenter', () => hint(i))
-      b.addEventListener('focus', () => hint(i))
+      b.addEventListener('pointerenter', () => select(i))
+      b.addEventListener('focus', () => select(i))
       row.appendChild(b)
     })
     row.hidden = !choices.length
   }
   S.choices = choices
-  hint(S.selected)
+  hint()
 
   let note = ''
   if (!S.canSign) note = 'This browser cannot make a signing key (Ed25519). Chrome 137, Safari 17 or Firefox 130 and newer can.'
@@ -450,24 +562,30 @@ function renderYou() {
   showNote(note)
 
   const st = U.$('status')
-  st.textContent = queue?.inflight ? (queue.inflight.kind === 'throw' ? `Throwing ${f(queue.inflight.amount)} EMBER…` : 'Fetching kindling…') : ''
-  st.classList.toggle('busy', !!queue?.inflight)
+  const inflight = queue?.inflight
+  st.textContent = inflight ? { throw: `Throwing ${inflight.amount ? f(inflight.amount) : ''} EMBER…`, kindling: 'Fetching kindling…', collect: 'Collecting…' }[inflight.kind] : ''
+  st.classList.toggle('busy', !!inflight)
 }
 
-function hint(i) {
+function select(i) {
+  if (S.selected === i) return
+  S.selected = i
+  hint()
+  refreshEstimate()
+}
+
+function hint() {
   const m = S.model
   const el = U.$('throw-hint')
-  const choices = S.choices ?? []
-  if (!m || !choices.length || !m.canThrow) {
+  const c = selectedChoice()
+  if (!m || !c || !m.canThrow) {
     el.textContent = ''
     return
   }
-  S.selected = i
-  const c = choices[i ?? Math.min(1, choices.length - 1)] ?? choices[0]
-  const p = L.throwPreview(m, c.amount)
+  const est = S.estimate?.est && L.big(S.estimate.est.amount) === c.amount ? S.estimate.est : L.estimateLocal({ cfg: S.cfg, state: S.state, amount: c.amount, nowMs: chainNow() })
+  const p = L.previewFromEstimate(m, est, S.cfg)
   const f = (u) => L.fmtEmber(u, m.dec)
-  const factor = L.fmtFactor(m.reached ? m.lateLitBp : m.earlyBp)
-  el.textContent = `Throw ${f(c.amount)} now (counts ${factor}): about +${f(p.gain)} new EMBER if it catches.`
+  el.textContent = `Throw ${f(c.amount)} now: it counts ${L.fmtFactor(p.factorBp)}, about +${f(p.gain)} new EMBER if the fire catches.`
 }
 
 function showNote(text) {
@@ -479,7 +597,9 @@ function showNote(text) {
 function renderHistory() {
   const dec = S.cfg.config.decimals
   const sym = S.cfg.config.symbol
-  U.renderStrip(U.$('strip'), L.nightStrip(S.history, 24), { decimals: dec, symbol: sym })
+  const strip = L.nightStrip(S.history, 24)
+  U.renderStrip(U.$('strip'), strip, { decimals: dec, symbol: sym })
+  U.setText('strip-word', strip.length ? strip[strip.length - 1].word : '')
   U.renderChart(U.$('chart'), L.supplySeries(S.history, dec), { symbol: sym })
 }
 
@@ -488,10 +608,10 @@ function renderRecords() {
   if (!r) return
   const dec = S.cfg.config.decimals
   U.setText('rec-streak', r.longest_streak === 1 ? '1 night' : `${r.longest_streak} nights`)
-  U.setText('rec-tallest', L.big(r.tallest_fire) > 0n ? L.fmtEmber(r.tallest_fire, dec) : '–')
+  U.setText('rec-tallest', L.big(r.tallest_fire) > 0n ? L.fmtWhole(r.tallest_fire, dec) : '–')
   U.setText('rec-minted', L.fmtEmber(r.total_minted, dec, { compact: true }))
   U.setText('rec-burned', L.fmtEmber(r.total_burned, dec, { compact: true }))
-  U.setText('tally', `${r.nights_lit} lit · ${r.nights_smoke} smoke · ${r.nights_empty} cold · ${r.kindling_claims} kindling claim${r.kindling_claims === 1 ? '' : 's'}`)
+  U.setText('tally', `${r.nights_lit} lit · ${r.nights_smoked} smoked · ${r.nights_cold} cold · ${r.kindling_claims} kindling claim${r.kindling_claims === 1 ? '' : 's'}`)
 }
 
 let resizeTimer = null
@@ -506,6 +626,7 @@ async function openProof() {
   const draw = () =>
     U.proofHtml({
       mock: MOCK,
+      deployment: DEPLOYMENT.name,
       contract: client?.contract ?? CONTRACT,
       keys: S.keys,
       codeHash: S.codeHash,
@@ -515,6 +636,7 @@ async function openProof() {
       txs: client?.txs ?? [],
       explorer: EXPLORER,
       deployed: S.deployed,
+      owed: S.state ? { amount: L.fmtEmber(S.state.owed, S.cfg.config.decimals), nights: S.state.owed_nights } : null,
     })
   U.openDrawer('Proof', draw())
   if (S.keys === null && client) {

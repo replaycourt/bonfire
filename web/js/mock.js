@@ -1,41 +1,45 @@
 // MOCK MODE, for development only: `?mock=1` in the URL. Never active otherwise.
 //
-// A copy of the contract's ritual in BigInt (same weights, same rounding, same views), demo bots and
-// a few made-up players throwing on a schedule, and a client with the same methods as the real one.
-// Nothing here touches the network. It exists so every state of the page can be seen and
-// screenshotted without a deployment: `&scene=first|early|close|lit|smoke|live`, `&night=<seconds>`.
-import { BP, big, clockNight, hashSeed, kindlingAction } from './logic.js'
+// A copy of the contract's ritual in BigInt (pooled windows, pile-position weights, pull payments,
+// the same rounding and the same views), the demo bots of sim/params.json and a few made-up players
+// throwing on a schedule, and a client with the same methods as the real one. Nothing here touches
+// the network. It exists so every state of the page can be seen without a deployment:
+// `&scene=first|early|close|lit|smoke|cold|live`, `&night=<seconds>`.
+import { BP, big, clockNight, hashSeed, windowAt, windowWeights } from './logic.js'
 
 const DEC = 18
 const E = (whole) => BigInt(Math.round(whole * 1000)) * 10n ** BigInt(DEC - 3)
 const SUPPLY_CAP = 1n << 112n
+const RECENT = 16
+const ICON_NIGHTS = 7
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
-/** The testnet launch parameters (sim/params.json), as `config().config` would show them. */
+/** The testnet launch values of sim/params.json, as `config().config` shows them. */
 export function mockConfig(nightMs = 300_000) {
   return {
-    name: 'Bonfire Ember',
+    name: 'Bonfire',
     symbol: 'EMBER',
     decimals: DEC,
     night_ms: nightMs,
-    hearth_genesis: E(400_000).toString(),
-    target_start: E(4000).toString(),
-    target_min: E(1000).toString(),
+    hearth_genesis: E(900_000).toString(),
+    target_start: E(400).toString(),
+    target_min: E(100).toString(),
     grow_bp: 700,
     shrink_bp: 1000,
-    mint_bp: 500,
-    hearth_cut_bp: 2000,
-    smoke_bp: 100,
-    hearth_burn_bp: 10,
-    early_max_bp: 60_000,
-    late_lit_bp: 1000,
+    mint_bp: 400,
+    hearth_cut_bp: 1000,
+    smoke_bp: 300,
+    hearth_burn_bp: 25,
+    early_max_bp: 40_000,
+    late_lit_bp: 2500,
+    pool_windows: 4,
+    target_cap_bp: 2500,
     min_throw: E(1).toString(),
-    kindling: E(2000).toString(),
-    kindling_per_night: 5,
-    max_throwers_per_night: 88,
-    max_accounts: 1000,
+    kindling: E(200).toString(),
+    kindling_per_night: 1,
     max_catchup: 30,
     log_keep: 48,
+    max_accounts: 4505,
     history_keep: 4096,
   }
 }
@@ -54,11 +58,13 @@ export function rng(seed) {
 
 const fakeHex = (r) => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(r() * 16)]).join('')
 const fakeHash = (r) => Array.from({ length: 44 }, () => B58[Math.floor(r() * 58)]).join('')
+const s = (v) => v.toString()
+const sum = (m) => [...m.values()].reduce((a, b) => a + b, 0n)
 
 // ---- the contract, in miniature -------------------------------------------------------------------
 
 export class MockEngine {
-  constructor(cfg, founders, genesisMs, contract = 'bonfire-coin.testnet') {
+  constructor(cfg, founders, genesisMs, contract = 'bonfire-stage.testnet') {
     this.cfg = cfg
     this.contract = contract
     this.genesisMs = genesisMs
@@ -67,21 +73,27 @@ export class MockEngine {
     this.night = 1
     this.target = big(cfg.target_start)
     this.pile = 0n
-    this.weight = 0n
-    this.tonight = []
+    this.windows = Array(cfg.pool_windows).fill(0n)
+    this.throwers = 0
+    this.firestarter = null
+    this.lastLog = null
     this.hearth = big(cfg.hearth_genesis)
     this.supply = this.hearth
     this.balances = 0n
+    this.owed = 0n
+    this.owedNights = 0
+    this.owedByNight = new Map()
     this.streak = 0
-    this.records = { longest_streak: 0, tallest_fire: 0n, total_minted: 0n, total_burned: 0n, nights_lit: 0, nights_smoke: 0, nights_empty: 0, kindling_claims: 0 }
+    this.records = { longest_streak: 0, tallest_fire: 0n, total_minted: 0n, total_burned: 0n, nights_lit: 0, nights_smoked: 0, nights_cold: 0, kindling_claims: 0 }
     this.last = null
     this.kindlingNight = 1
     this.kindlingClaims = 0
     this.sponsored = 0
     this.logs = new Map()
     this.history = []
+    this.recent = []
     for (const f of founders) {
-      this.holders.set(f.account_id, { balance: big(f.amount), wood: 0n, weight: 0n, nonce: 0, sponsored: true, held: true, kindled: false })
+      this.holders.set(f.account_id, { balance: big(f.amount), nonce: 0, sponsored: true, held: true, kindled: false, pending: null })
       this.balances += big(f.amount)
       this.supply += big(f.amount)
       this.sponsored++
@@ -98,10 +110,11 @@ export class MockEngine {
   end(n) {
     return this.genesisMs + n * this.cfg.night_ms
   }
-  earlyBp(elapsed) {
-    const span = BigInt(this.cfg.early_max_bp - 10_000)
-    const e = BigInt(Math.floor(Math.max(0, Math.min(elapsed, this.cfg.night_ms))))
-    return this.cfg.early_max_bp - Number((span * e) / BigInt(this.cfg.night_ms))
+  windowAt(elapsed) {
+    return windowAt(elapsed, this.cfg.night_ms, this.cfg.pool_windows)
+  }
+  weights(woods = this.windows, target = this.target) {
+    return windowWeights(woods, target, this.cfg.early_max_bp, this.cfg.late_lit_bp)
   }
 
   catchUp(now) {
@@ -114,105 +127,148 @@ export class MockEngine {
     return done
   }
 
+  nextTarget(rule) {
+    let next = rule < SUPPLY_CAP ? rule : SUPPLY_CAP
+    if (this.cfg.target_cap_bp > 0) {
+      const cap = ((this.supply - this.hearth - this.pile) * BigInt(this.cfg.target_cap_bp)) / BP
+      if (cap < next) next = cap
+    }
+    const min = big(this.cfg.target_min)
+    return next < min ? min : next
+  }
+
   settleNight() {
+    const c = this.cfg
     const n = this.night
-    const target = this.target
-    const pile = this.pile
-    const log = { night: n, outcome: 'empty', target, pile, minted: 0n, hearth_cut: 0n, unminted: 0n, burned: 0n, hearth_burned: 0n, to_hearth: 0n, throwers: [] }
-    let next
-    let moved
+    const { target, pile, throwers } = this
+    const ws = pile > 0n ? this.weights() : []
+    const log = { night: n, outcome: 'COLD', target, pile, throwers, minted: 0n, hearth_cut: 0n, burned: 0n, hearth_burned: 0n, firestarter: this.firestarter, last_log: this.lastLog, windows: ws }
+    this.pile = 0n
+    this.windows = Array(c.pool_windows).fill(0n)
+    this.throwers = 0
+    this.firestarter = null
+    this.lastLog = null
+    let rule
+    let moved = 0n
     if (pile > 0n && pile >= target) {
-      let mint = (target * BigInt(this.cfg.mint_bp)) / BP
+      let mint = (target * BigInt(c.mint_bp)) / BP
       if (mint > SUPPLY_CAP - this.supply) mint = SUPPLY_CAP - this.supply
-      const cut = (mint * BigInt(this.cfg.hearth_cut_bp)) / BP
-      const pool = mint - cut
-      let shares = 0n
-      for (const a of this.tonight) {
-        const h = this.holders.get(a)
-        const share = this.weight > 0n ? (pool * h.weight) / this.weight : 0n
-        log.throwers.push({ account: a, wood: h.wood, weight: h.weight, paid: h.wood + share })
-        h.balance += h.wood + share
-        h.wood = 0n
-        h.weight = 0n
-        shares += share
-      }
-      const minted = cut + shares
-      this.balances += pile + shares
+      const cut = (mint * BigInt(c.hearth_cut_bp)) / BP
+      const shared = mint - cut
+      const weight = ws.reduce((a, w) => a + w.weight, 0n)
+      this.supply += mint
       this.hearth += cut
-      this.supply += minted
+      this.owe(n, { outcome: 'LIT', pile, pool: shared, weight, windows: ws, left: throwers, remaining: pile + shared })
       this.streak++
       const r = this.records
-      r.total_minted += minted
+      r.total_minted += mint
       r.longest_streak = Math.max(r.longest_streak, this.streak)
       if (target > r.tallest_fire) r.tallest_fire = target
       r.nights_lit++
-      next = target + (target * BigInt(this.cfg.grow_bp)) / BP
-      if (next > SUPPLY_CAP) next = SUPPLY_CAP
-      Object.assign(log, { outcome: 'lit', minted, hearth_cut: cut, unminted: pool - shares })
-      moved = minted
-    } else {
-      const burn = (pile * BigInt(this.cfg.smoke_bp)) / BP
-      const backPool = pile - burn
-      let returned = 0n
-      for (const a of this.tonight) {
-        const h = this.holders.get(a)
-        const back = (backPool * h.wood) / pile
-        log.throwers.push({ account: a, wood: h.wood, weight: h.weight, paid: back })
-        h.balance += back
-        h.wood = 0n
-        h.weight = 0n
-        returned += back
-      }
-      const toHearth = backPool - returned
-      const hearthBurned = (this.hearth * BigInt(this.cfg.hearth_burn_bp)) / BP
-      this.hearth = this.hearth - hearthBurned + toHearth
-      this.balances += returned
-      const burned = burn + hearthBurned
-      this.supply -= burned
+      rule = (target * (BP + BigInt(c.grow_bp))) / BP
+      Object.assign(log, { outcome: 'LIT', minted: mint, hearth_cut: cut })
+      moved = mint
+    } else if (pile > 0n) {
+      const burn = (pile * BigInt(c.smoke_bp)) / BP
+      const back = pile - burn
+      let hb = (this.hearth * BigInt(c.hearth_burn_bp)) / BP
+      const cap = (target * BigInt(c.mint_bp)) / BP
+      if (hb > cap) hb = cap
+      this.hearth -= hb
+      this.supply -= burn + hb
+      this.owe(n, { outcome: 'SMOKED', pile, pool: back, weight: 0n, windows: [], left: throwers, remaining: back })
       this.streak = 0
-      this.records.total_burned += burned
-      if (pile === 0n) this.records.nights_empty++
-      else this.records.nights_smoke++
-      next = target - (target * BigInt(this.cfg.shrink_bp)) / BP
-      const min = big(this.cfg.target_min)
-      if (next < min) next = min
-      Object.assign(log, { outcome: pile === 0n ? 'empty' : 'smoke', burned, hearth_burned: hearthBurned, to_hearth: toHearth })
-      moved = burned
+      this.records.total_burned += burn + hb
+      this.records.nights_smoked++
+      rule = (target * (BP - BigInt(c.shrink_bp))) / BP
+      Object.assign(log, { outcome: 'SMOKED', burned: burn + hb, hearth_burned: hb })
+      moved = burn + hb
+    } else {
+      this.streak = 0
+      this.records.nights_cold++
+      rule = (target * (BP - BigInt(c.shrink_bp))) / BP
     }
-    this.pile = 0n
-    this.weight = 0n
-    this.tonight = []
-    this.target = next
-    log.target_next = next
-    log.streak = this.streak
-    log.supply = this.supply
+    this.target = this.nextTarget(rule)
+    Object.assign(log, { target_next: this.target, streak: this.streak, supply: this.supply })
     this.history.push({ night: n, outcome: log.outcome, target, pile, moved, supply: this.supply })
     this.last = { night: n, outcome: log.outcome, target, pile }
     this.logs.set(n, log)
-    this.logs.delete(n - this.cfg.log_keep)
+    this.logs.delete(n - c.log_keep)
     this.night++
+  }
+
+  owe(night, o) {
+    this.owed += o.remaining
+    this.owedNights++
+    this.owedByNight.set(night, o)
+  }
+
+  static creditOf(o, p) {
+    const wood = sum(p.wood)
+    if (o.outcome === 'LIT') {
+      let weight = 0n
+      for (const [w, a] of p.wood) {
+        const win = o.windows[w]
+        if (win && win.wood > 0n) weight += (win.weight * a) / win.wood
+      }
+      return wood + (o.weight > 0n ? (o.pool * weight) / o.weight : 0n)
+    }
+    return (wood * o.pool) / o.pile
+  }
+
+  pendingCredit(h) {
+    const p = h?.pending
+    if (!p || p.night >= this.night) return 0n
+    const o = this.owedByNight.get(p.night)
+    return o ? MockEngine.creditOf(o, p) : 0n
+  }
+
+  /** Credits what a settled night owes the account; the night's last collection moves the dust. */
+  credit(account) {
+    const h = this.holders.get(account)
+    const p = h?.pending
+    if (!p || p.night >= this.night) return { night: null, amount: 0n }
+    const o = this.owedByNight.get(p.night)
+    const amount = MockEngine.creditOf(o, p)
+    o.left -= 1
+    o.remaining -= amount
+    if (o.left === 0) {
+      this.owedByNight.delete(p.night)
+      this.owedNights--
+      this.hearth += o.remaining
+      this.owed -= o.remaining
+    }
+    h.balance += amount
+    h.pending = null
+    this.balances += amount
+    this.owed -= amount
+    return { night: p.night, amount }
   }
 
   throw(actor, amount, now) {
     const a = big(amount)
-    if (this.night < this.clock(now)) return { error: 'ended nights are still waiting to be settled: call settle, then throw again' }
-    if (a < big(this.cfg.min_throw)) return { error: 'the smallest throw is ' + this.cfg.min_throw + ' base units' }
+    const n = this.night
+    if (n < this.clock(now)) return { error: 'ended nights are still waiting to be settled: call settle, then throw again' }
+    if (a < big(this.cfg.min_throw)) return { error: `the smallest throw is ${this.cfg.min_throw} base units` }
     const h = this.holders.get(actor)
     if (!h) return { error: `The account ${actor} is not registered` }
+    const collected = this.credit(actor).amount
     if (h.balance < a) return { error: 'not enough free EMBER' }
-    const first = h.wood === 0n
-    if (first && this.tonight.length >= this.cfg.max_throwers_per_night) return { error: "tonight's fire has no seats left" }
-    const early = this.earlyBp(now - this.start(this.night))
-    const below = this.pile >= this.target ? 0n : a < this.target - this.pile ? a : this.target - this.pile
-    const weight = below * BigInt(early) + (a - below) * BigInt(this.cfg.late_lit_bp)
+    const first = !h.pending
+    const window = this.windowAt(now - this.start(n))
     h.balance -= a
-    h.wood += a
-    h.weight += weight
+    if (!h.pending) h.pending = { night: n, wood: new Map() }
+    h.pending.wood.set(window, (h.pending.wood.get(window) ?? 0n) + a)
+    const before = this.pile
     this.balances -= a
     this.pile += a
-    this.weight += weight
-    if (first) this.tonight.push(actor)
-    return { ok: { night: this.night, amount: a.toString(), weight: weight.toString(), wood: h.wood.toString(), weight_total: h.weight.toString(), pile: this.pile.toString(), target: this.target.toString() } }
+    this.windows[window] += a
+    if (first) this.throwers++
+    if (!this.firestarter) this.firestarter = actor
+    if (before < this.target && this.pile >= this.target) this.lastLog = { account: actor, amount: a }
+    this.recent.push({ night: n, window, account: actor, amount: a, pile: this.pile, at_ms: now })
+    if (this.recent.length > RECENT) this.recent.shift()
+    return { ok: { night: n, window, amount: s(a), wood: s(sum(h.pending.wood)), pile: s(this.pile), target: s(this.target), collected: s(collected) } }
   }
 
   claimKindling(actor, now) {
@@ -224,7 +280,7 @@ export class MockEngine {
     let h = this.holders.get(actor)
     if (h?.held) return { error: 'kindling is only for accounts that never held EMBER' }
     if (!h) {
-      h = { balance: 0n, wood: 0n, weight: 0n, nonce: 0, sponsored: true, held: false, kindled: false }
+      h = { balance: 0n, nonce: 0, sponsored: true, held: false, kindled: false, pending: null }
       this.holders.set(actor, h)
       this.sponsored++
     }
@@ -236,22 +292,31 @@ export class MockEngine {
     this.kindlingNight = clock
     this.kindlingClaims = claims + 1
     this.records.kindling_claims++
-    return { ok: { night: clock, amount: k.toString(), left_tonight: this.cfg.kindling_per_night - this.kindlingClaims } }
+    return { ok: { night: clock, amount: s(k), left_tonight: this.cfg.kindling_per_night - this.kindlingClaims } }
+  }
+
+  collect(account, now) {
+    this.catchUp(now)
+    const { night, amount } = this.credit(account)
+    return { account, night, amount: s(amount) }
   }
 
   // ---- views, shaped like the contract's JSON (U128 as strings) ----
 
+  windowsView(ws) {
+    return ws.map((w, i) => ({ window: i, wood: s(w.wood), start_pile: s(w.start), weight: s(w.weight) }))
+  }
+
   configView() {
     return {
-      version: '0.1.0-mock',
+      version: '0.2.0-mock',
       config: this.cfg,
-      founders: this.founders.map((f) => ({ account_id: f.account_id, amount: big(f.amount).toString() })),
+      founders: this.founders.map((f) => ({ account_id: f.account_id, amount: s(big(f.amount)) })),
       genesis_ms: this.genesisMs,
-      genesis_supply: this.genesisSupply.toString(),
-      supply_cap: SUPPLY_CAP.toString(),
-      account_storage_bytes: 166,
-      account_storage_cost: '1660000000000000000000',
-      max_throwers_limit: 88,
+      genesis_supply: s(this.genesisSupply),
+      supply_cap: s(SUPPLY_CAP),
+      account_storage_bytes: 211,
+      account_storage_cost: '2110000000000000000000',
     }
   }
 
@@ -260,7 +325,7 @@ export class MockEngine {
     const claims = this.kindlingNight === clock ? this.kindlingClaims : 0
     const k = big(this.cfg.kindling)
     const affordable = this.hearth < k ? 0 : Number(this.hearth / k)
-    const s = (v) => v.toString()
+    const windowNow = this.windowAt(now - this.start(clock))
     const r = this.records
     return {
       night: this.night,
@@ -270,17 +335,21 @@ export class MockEngine {
       due: clock > this.night,
       nights_due: clock - this.night,
       clock_night: clock,
+      window_now: windowNow,
+      window_end_ms: this.start(clock) + Math.floor((this.cfg.night_ms * (windowNow + 1)) / this.cfg.pool_windows),
+      windows: this.windowsView(this.weights()),
       target: s(this.target),
       pile: s(this.pile),
-      throwers: this.tonight.length,
-      max_throwers: this.cfg.max_throwers_per_night,
-      weight: s(this.weight),
+      throwers: this.throwers,
       reached: this.pile >= this.target,
-      early_bp_now: this.earlyBp(now - this.start(clock)),
+      firestarter: this.firestarter,
+      last_log: this.lastLog ? { account: this.lastLog.account, amount: s(this.lastLog.amount) } : null,
       streak: this.streak,
       records: { ...r, tallest_fire: s(r.tallest_fire), total_minted: s(r.total_minted), total_burned: s(r.total_burned) },
       hearth: s(this.hearth),
       supply: s(this.supply),
+      owed: s(this.owed),
+      owed_nights: this.owedNights,
       kindling_left_tonight: Math.min(Math.max(0, this.cfg.kindling_per_night - claims), affordable),
       accounts_sponsored: this.sponsored,
       max_accounts: this.cfg.max_accounts,
@@ -290,12 +359,24 @@ export class MockEngine {
 
   holderView(account) {
     const h = this.holders.get(account)
+    const credited = h?.balance ?? 0n
+    const pending = this.pendingCredit(h)
+    const p = h?.pending
+    let weight = 0n
+    if (p) {
+      const ws = p.night === this.night ? this.weights() : this.owedByNight.get(p.night)?.outcome === 'LIT' ? this.owedByNight.get(p.night).windows : null
+      if (ws) for (const [w, a] of p.wood) if (ws[w]?.wood > 0n) weight += (ws[w].weight * a) / ws[w].wood
+    }
     return {
       account,
       registered: !!h,
-      balance: (h?.balance ?? 0n).toString(),
-      wood: (h?.wood ?? 0n).toString(),
-      weight: (h?.weight ?? 0n).toString(),
+      balance: s(credited + pending),
+      credited: s(credited),
+      pending: s(pending),
+      wood_night: p?.night ?? null,
+      wood: s(p ? sum(p.wood) : 0n),
+      wood_by_window: p ? [...p.wood].sort((a, b) => a[0] - b[0]).map(([window, wood]) => ({ window, wood: s(wood) })) : [],
+      weight: s(weight),
       nonce: h?.nonce ?? 0,
       sponsored: !!h?.sponsored,
       held: !!h?.held,
@@ -305,33 +386,32 @@ export class MockEngine {
   }
 
   nightView(n) {
-    const s = (v) => v.toString()
     if (n === this.night) {
       return {
         night: n,
-        outcome: 'open',
+        outcome: 'OPEN',
         start_ms: this.start(n),
         end_ms: this.end(n),
         target: s(this.target),
         pile: s(this.pile),
+        throwers: this.throwers,
         minted: '0',
         hearth_cut: '0',
-        unminted: '0',
         burned: '0',
         hearth_burned: '0',
-        to_hearth: '0',
         target_next: null,
         streak: this.streak,
         supply: null,
-        throwers: this.tonight.map((a) => {
-          const h = this.holders.get(a)
-          return { account: a, wood: s(h.wood), weight: s(h.weight), back: '0', reward: '0', lost: '0' }
-        }),
+        firestarter: this.firestarter,
+        last_log: this.lastLog ? { account: this.lastLog.account, amount: s(this.lastLog.amount) } : null,
+        windows: this.windowsView(this.weights()),
+        owed: null,
+        uncollected: null,
       }
     }
     const log = this.logs.get(n)
     if (!log) return null
-    const lit = log.outcome === 'lit'
+    const o = this.owedByNight.get(n)
     return {
       night: n,
       outcome: log.outcome,
@@ -339,23 +419,19 @@ export class MockEngine {
       end_ms: this.end(n),
       target: s(log.target),
       pile: s(log.pile),
+      throwers: log.throwers,
       minted: s(log.minted),
       hearth_cut: s(log.hearth_cut),
-      unminted: s(log.unminted),
       burned: s(log.burned),
       hearth_burned: s(log.hearth_burned),
-      to_hearth: s(log.to_hearth),
       target_next: s(log.target_next),
       streak: log.streak,
       supply: s(log.supply),
-      throwers: log.throwers.map((t) => ({
-        account: t.account,
-        wood: s(t.wood),
-        weight: s(t.weight),
-        back: s(lit ? t.wood : t.paid),
-        reward: s(lit ? t.paid - t.wood : 0n),
-        lost: s(lit ? 0n : t.wood - t.paid),
-      })),
+      firestarter: log.firestarter,
+      last_log: log.last_log ? { account: log.last_log.account, amount: s(log.last_log.amount) } : null,
+      windows: this.windowsView(log.windows),
+      owed: s(o?.remaining ?? 0n),
+      uncollected: o?.left ?? 0,
     }
   }
 
@@ -367,85 +443,122 @@ export class MockEngine {
       .slice(0, Math.min(limit, 500))
       .map((r) => ({
         night: r.night,
-        target: r.target.toString(),
-        pile: r.pile.toString(),
+        target: s(r.target),
+        pile: s(r.pile),
         outcome: r.outcome,
-        minted: (r.outcome === 'lit' ? r.moved : 0n).toString(),
-        burned: (r.outcome === 'lit' ? 0n : r.moved).toString(),
-        supply: r.supply.toString(),
+        minted: s(r.outcome === 'LIT' ? r.moved : 0n),
+        burned: s(r.outcome === 'LIT' ? 0n : r.moved),
+        supply: s(r.supply),
       }))
   }
 
-  metadataView() {
-    const l = this.last ?? { pile: this.pile, target: this.target, outcome: 'open' }
-    return { spec: 'ft-1.0.0', name: this.cfg.name, symbol: this.cfg.symbol, icon: iconDataUrl(drawIcon(l.pile, l.target, l.outcome, this.streak)), reference: null, reference_hash: null, decimals: this.cfg.decimals }
+  estimateView(amount, now) {
+    const a = big(amount)
+    const clock = this.clock(now)
+    const window = this.windowAt(now - this.start(clock))
+    const open = clock === this.night
+    const woods = open ? [...this.windows] : Array(this.cfg.pool_windows).fill(0n)
+    let target = this.target
+    if (!open && target < big(this.cfg.target_min)) target = big(this.cfg.target_min)
+    woods[window] += a
+    const { wood: x, weight: w } = this.weights(woods, target)[window]
+    const weight = x === 0n ? 0n : (w * a) / x
+    return { night: clock, window, amount: s(a), weight: s(weight), factor_bp: a === 0n ? 0 : Number(weight / a) }
   }
 
-  /** supply == balances + pile + hearth, and the pile equals its throwers' wood. */
+  recentView() {
+    return this.recent.map((t) => ({ night: t.night, window: t.window, account: t.account, amount: s(t.amount), pile: s(t.pile), at_ms: t.at_ms }))
+  }
+
+  metadataView() {
+    const l = this.last ?? { pile: this.pile, target: this.target, outcome: 'OPEN' }
+    const nights = this.history.slice(-ICON_NIGHTS).map((r) => r.outcome)
+    return { spec: 'ft-1.0.0', name: this.cfg.name, symbol: this.cfg.symbol, icon: iconDataUrl(drawIcon(l.pile, l.target, l.outcome, this.streak, nights)), reference: null, reference_hash: null, decimals: this.cfg.decimals }
+  }
+
+  /** supply == balances + pile + hearth + owed, and the pile equals its windows. */
   audit() {
-    const recomputed = this.tonight.reduce((s, a) => s + this.holders.get(a).wood, 0n)
     let free = 0n
     for (const h of this.holders.values()) free += h.balance
-    return { balanced: this.balances + this.pile + this.hearth === this.supply && recomputed === this.pile && free === this.balances, ledger: this.genesisSupply + this.records.total_minted === this.supply + this.records.total_burned }
+    const windows = this.windows.reduce((a, b) => a + b, 0n)
+    return {
+      balanced: this.balances + this.pile + this.hearth + this.owed === this.supply && windows === this.pile && free === this.balances,
+      ledger: this.genesisSupply + this.records.total_minted === this.supply + this.records.total_burned,
+    }
   }
 }
 
-// ---- the coin's face, as icon.rs draws it --------------------------------------------------------
+// ---- the coin's face, as contract/src/icon.rs draws it ---------------------------------------------
 
-function flameHeight(pile, pct) {
+function iconLabel(outcome, streak) {
+  if (outcome === 'LIT') return [`LIT ×${streak}`, 8 + Math.floor(Math.min(streak, 15) / 3), '#ffd23f']
+  if (outcome === 'SMOKED') return ['SMOKED', 8, '#c9c5d6']
+  if (outcome === 'COLD') return ['COLD', 8, '#9fbfe0']
+  return ['FIRST NIGHT', 7, '#ffd8a0']
+}
+
+function flameHeight(pile, pct, lit) {
   if (pile === 0n) return 0
-  if (pct >= 100) return 24 + Math.floor(((pct - 100) * 10) / 50)
-  return 4 + Math.floor((pct * 16) / 100)
+  if (lit || pct >= 100) return 14 + Math.floor(((Math.max(pct, 100) - 100) * 8) / 50)
+  return 3 + Math.floor((pct * 9) / 100)
 }
 
-function flame(h, w, fill) {
-  const top = 44 - h
-  const mid = 44 - Math.floor((h * 11) / 20)
-  const [l, r] = [32 - w, 32 + w]
-  return `<path d='M32 ${top}C${r} ${mid} ${r} 44 32 44C${l} 44 ${l} ${mid} 32 ${top}Z' fill='${fill}'/>`
+function flame(x, base, h, w, fill) {
+  const top = base - h
+  const mid = base - Math.floor((h * 11) / 20)
+  const [l, r] = [x - w, x + w]
+  return `<path d='M${x} ${top}C${r} ${mid} ${r} ${base} ${x} ${base}C${l} ${base} ${l} ${mid} ${x} ${top}Z' fill='${fill}'/>`
 }
 
-export function drawIcon(pile, target, outcome, streak) {
+export function drawIcon(pile, target, outcome, streak, nights = []) {
   const p = big(pile)
   const t = big(target)
   let pct = t === 0n ? 150 : Number((p * 100n) / t)
   if (pct > 150) pct = 150
-  const smoky = outcome === 'smoke' || outcome === 'empty'
-  const h = flameHeight(p, pct)
-  let s = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='#1d1426'/>"
+  const smoky = outcome === 'SMOKED' || outcome === 'COLD'
+  const h = flameHeight(p, pct, outcome === 'LIT')
+  let out = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='#1d1426'/>"
+  const [word, size, color] = iconLabel(outcome, streak)
+  out += `<text x='32' y='${4 + size}' text-anchor='middle' font-family='sans-serif' font-size='${size}' font-weight='700' fill='${color}'>${word}</text>`
   if (h > 0) {
-    const w = 6 + Math.floor(h / 3)
+    const w = 4 + Math.floor(h / 3)
     const [outer, inner] = smoky ? ['#b4521f', '#e09a3a'] : ['#ff7a1a', '#ffd23f']
-    s += flame(h, w, outer) + flame(Math.floor((h * 3) / 5), Math.floor((w * 3) / 5), inner)
+    out += flame(32, 42, h, w, outer) + flame(32, 42, Math.floor((h * 3) / 5), Math.floor((w * 3) / 5), inner)
   } else {
-    s += "<g fill='#e0532a'><circle cx='25' cy='39' r='2'/><circle cx='32' cy='38' r='2'/><circle cx='39' cy='40' r='2'/></g>"
+    out += "<g fill='#e0532a'><circle cx='27' cy='38' r='1.6'/><circle cx='32' cy='37' r='1.6'/><circle cx='37' cy='38' r='1.6'/></g>"
   }
   if (smoky) {
-    const top = h === 0 ? 30 : Math.max(44 - h - 8, 22)
-    s += `<g fill='#8f8c99' opacity='.8'><circle cx='27' cy='${top}' r='6'/><circle cx='37' cy='${top - 6}' r='7'/><circle cx='30' cy='${top - 13}' r='5'/></g>`
+    const top = h === 0 ? 32 : 42 - h - 2
+    out += `<g fill='#8f8c99' opacity='.8'><circle cx='28' cy='${top}' r='4'/><circle cx='36' cy='${top - 6}' r='5'/></g>`
   }
-  s += "<path d='M16 50L48 42M16 42L48 50' stroke='#7b4a26' stroke-width='5' stroke-linecap='round'/>"
-  s += `<text x='32' y='61' text-anchor='middle' font-family='sans-serif' font-size='9' font-weight='700' fill='#ffd8a0'>${streak}</text></svg>`
-  return s
+  out += "<path d='M19 47L45 40M19 40L45 47' stroke='#7b4a26' stroke-width='4' stroke-linecap='round'/>"
+  nights.forEach((o, i) => {
+    const x = 10 + i * 7
+    if (o === 'LIT') out += flame(x, 59, 7, 3, '#ff7a1a')
+    else if (o === 'SMOKED') out += `<circle cx='${x}' cy='56' r='2.6' fill='#8f8c99'/>`
+    else out += `<circle cx='${x}' cy='56' r='2' fill='none' stroke='#6c7a90'/>`
+  })
+  return out + '</svg>'
 }
 
 export function iconDataUrl(svg) {
   let out = 'data:image/svg+xml,'
-  for (const ch of svg) {
+  for (const b of new TextEncoder().encode(svg)) {
+    const ch = String.fromCharCode(b)
     if (/[A-Za-z0-9\-_.!~*'()/:;=,]/.test(ch)) out += ch
-    else out += '%' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')
+    else out += '%' + b.toString(16).toUpperCase().padStart(2, '0')
   }
   return out
 }
 
-// ---- a world of bots and made-up players --------------------------------------------------------
+// ---- a world of demo bots and made-up players ----------------------------------------------------
 
 const BOTS = [
-  { id: 'bot-early-a.bonfire-coin.testnet', fund: 200_000, kind: 'early', amount: 2000 },
-  { id: 'bot-early-b.bonfire-coin.testnet', fund: 150_000, kind: 'early', amount: 1500 },
-  { id: 'bot-steady.bonfire-coin.testnet', fund: 100_000, kind: 'steady', amount: 1500 },
-  { id: 'bot-late.bonfire-coin.testnet', fund: 50_000, kind: 'late', amount: 1000 },
-  { id: 'bot-idle.bonfire-coin.testnet', fund: 100_000, kind: 'idle', amount: 0 },
+  { id: 'demo-bot-early-a.bonfire.testnet', fund: 40_000, kind: 'early', amount: 200 },
+  { id: 'demo-bot-early-b.bonfire.testnet', fund: 30_000, kind: 'early', amount: 150 },
+  { id: 'demo-bot-steady.bonfire.testnet', fund: 15_000, kind: 'steady', amount: 150 },
+  { id: 'demo-bot-late.bonfire.testnet', fund: 5_000, kind: 'late', amount: 100 },
+  { id: 'demo-bot-idle.bonfire.testnet', fund: 10_000, kind: 'idle', amount: 0 },
 ]
 
 /**
@@ -455,8 +568,7 @@ const BOTS = [
 export class MockWorld {
   constructor({ nightMs = 300_000, genesisMs, seed = 7, players = 16 }) {
     const r = rng(seed)
-    this.r = r
-    this.players = Array.from({ length: players }, () => ({ id: fakeHex(r), fund: 3000 + Math.floor(r() * 9000), skill: r() }))
+    this.players = Array.from({ length: players }, () => ({ id: fakeHex(r), fund: 400 + Math.floor(r() * 1200) }))
     const founders = [...BOTS.map((b) => ({ account_id: b.id, amount: E(b.fund) })), ...this.players.map((p) => ({ account_id: p.id, amount: E(p.fund) }))]
     this.engine = new MockEngine(mockConfig(nightMs), founders, genesisMs)
     this.planned = new Map() // night -> [{t, account, amount}] sorted by t
@@ -473,14 +585,14 @@ export class MockWorld {
     const out = []
     const jitter = (a) => Math.round(a * (0.75 + r() * 0.5))
     for (const b of BOTS) {
-      if (b.kind === 'early' && r() < 0.9) out.push({ t: start + r() * 0.2 * nm, account: b.id, amount: jitter(b.amount) })
-      if (b.kind === 'steady' && r() < 0.85) out.push({ t: start + (0.4 + r() * 0.4) * nm, account: b.id, amount: jitter(b.amount), cond: 'steady' })
-      if (b.kind === 'late' && r() < 0.9) out.push({ t: start + (0.9 + r() * 0.09) * nm, account: b.id, amount: b.amount, cond: 'late' })
+      if (b.kind === 'early' && r() < 0.9) out.push({ t: start + Math.floor(r() * 0.2 * nm), account: b.id, amount: jitter(b.amount) })
+      if (b.kind === 'steady' && r() < 0.85) out.push({ t: start + Math.floor((0.4 + r() * 0.4) * nm), account: b.id, amount: jitter(b.amount), cond: 'steady' })
+      if (b.kind === 'late' && r() < 0.9) out.push({ t: start + Math.floor((0.9 + r() * 0.09) * nm), account: b.id, amount: b.amount, cond: 'late' })
     }
-    // A crowd that grows over the first nights, with some quiet nights.
-    const crowd = Math.floor(r() * Math.min(9, 2 + n / 3))
+    // a crowd that grows over the first nights, with quiet nights between
+    const crowd = Math.floor(r() * Math.min(7, 1 + n / 4))
     const picked = [...this.players].sort(() => r() - 0.5).slice(0, crowd)
-    for (const p of picked) out.push({ t: start + r() * 0.97 * nm, account: p.id, amount: Math.max(5, Math.round((50 + r() * 900) / 5) * 5) })
+    for (const p of picked) out.push({ t: start + Math.floor(r() * 0.97 * nm), account: p.id, amount: 10 + Math.round(r() * 60) })
     out.sort((a, b) => a.t - b.t)
     this.planned.set(n, out)
     return out
@@ -497,7 +609,7 @@ export class MockWorld {
       if (e.night !== ev.n || !this.wants(ev.item)) continue
       const h = e.holders.get(ev.item.account)
       const amount = ev.item.units ?? E(ev.item.amount)
-      if (h && h.balance >= amount) e.throw(ev.item.account, amount, ev.item.t)
+      if (h && h.balance + e.pendingCredit(h) >= amount) e.throw(ev.item.account, amount, ev.item.t)
     }
   }
 
@@ -516,10 +628,7 @@ export class MockWorld {
   wants(t) {
     const e = this.engine
     if (t.cond === 'steady') return e.streak >= 2 || e.pile * 10n >= e.target * 6n
-    if (t.cond === 'late') {
-      if (e.pile >= e.target) return true
-      return e.pile * 10n >= e.target * 8n && e.pile + E(t.amount) >= e.target
-    }
+    if (t.cond === 'late') return e.pile < e.target && e.pile * 10n >= e.target * 8n && e.pile + E(t.amount) >= e.target
     return true
   }
 }
@@ -527,25 +636,27 @@ export class MockWorld {
 // ---- presets for screenshots ----------------------------------------------------------------------
 
 /**
- * scene: first (empty first visit), early, close (near the target, late), lit / smoke (a night that
- * just ended, so the page settles it and plays the outcome), live (a running world, the default).
+ * scene: first (an empty first visit), early, close (near the target, late in the night), lit /
+ * smoke / cold (a night that just ended, so the page settles it and plays the outcome), live (a
+ * running world, the default).
  */
 export function buildMock({ scene = 'live', nightMs = 300_000, now = Date.now(), me }) {
   const P = {
     first: { nights: 0, at: 0.05, pct: 0, crowd: 0, mine: null },
-    early: { nights: 26, at: 0.12, pct: 0.17, crowd: 3, mine: { fund: 2350, wood: 0 } },
-    close: { nights: 33, at: 0.86, pct: 0.9, crowd: 9, mine: { fund: 3100, wood: 800 } },
-    lit: { nights: 39, at: 1.004, pct: 1.16, crowd: 11, mine: { fund: 4200, wood: 1500 } },
-    smoke: { nights: 39, at: 1.004, pct: 0.64, crowd: 6, mine: { fund: 4200, wood: 700 } },
-    live: { nights: 30, at: 0.3, pct: null, crowd: null, mine: { fund: 2600, wood: 0 } },
-  }[scene] ?? null
+    early: { nights: 26, at: 0.12, pct: 0.22, crowd: 3, mine: { fund: 460, wood: 0 } },
+    close: { nights: 33, at: 0.86, pct: 0.9, crowd: 8, mine: { fund: 520, wood: 120 } },
+    lit: { nights: 39, at: 1.004, pct: 1.16, crowd: 9, mine: { fund: 600, wood: 180 } },
+    smoke: { nights: 39, at: 1.004, pct: 0.64, crowd: 5, mine: { fund: 600, wood: 90 } },
+    cold: { nights: 39, at: 1.004, pct: 0, crowd: 0, mine: { fund: 600, wood: 0 } },
+    live: { nights: 30, at: 0.3, pct: null, crowd: null, mine: { fund: 480, wood: 0 } },
+  }[scene]
   if (!P) throw new Error('unknown mock scene ' + scene)
   const n = P.nights + 1 // the open night
   const genesisMs = Math.floor(now - (P.nights + P.at) * nightMs)
   const world = new MockWorld({ nightMs, genesisMs })
   const e = world.engine
   const start = e.start(n)
-  // History: let the schedule play until the open night begins. The player joined five nights ago.
+  // History: the schedule plays until the open night begins. The player joined five nights ago.
   if (P.mine) {
     const joinNight = Math.max(1, n - 5)
     world.advance(e.start(joinNight) + 1000)
@@ -554,20 +665,21 @@ export function buildMock({ scene = 'live', nightMs = 300_000, now = Date.now(),
     const extra = E(P.mine.fund) - big(e.cfg.kindling)
     if (extra > 0n) {
       // a gift from the idle bot stands in for rewards of earlier nights
-      const giver = e.holders.get(BOTS[4].id)
-      giver.balance -= extra
+      e.holders.get(BOTS[4].id).balance -= extra
       e.holders.get(me).balance += extra
     }
     for (let k = joinNight; k < n; k++) {
       const plan = world.plan(k)
-      plan.push({ t: e.start(k) + nightMs * (0.05 + 0.1 * ((k * 7) % 5)), account: me, amount: 150 + ((k * 37) % 4) * 100 })
+      plan.push({ t: e.start(k) + Math.floor(nightMs * (0.03 + 0.05 * ((k * 7) % 4))), account: me, amount: 20 + ((k * 37) % 4) * 15 })
       plan.sort((a, b) => a.t - b.t)
     }
   }
   world.advance(start - 1)
   e.catchUp(start + 1)
-  // The open night: a crafted pile for the preset, or the normal schedule for `live`.
+  // The player's credit from the last night is collected, as the next action would.
+  if (P.mine) e.credit(me)
   if (P.pct !== null) {
+    // The open night: a crafted pile.
     const target = e.target
     const want = (target * BigInt(Math.round(P.pct * 1000))) / 1000n
     const mineWood = P.mine?.wood ? E(P.mine.wood) : 0n
@@ -579,20 +691,18 @@ export function buildMock({ scene = 'live', nightMs = 300_000, now = Date.now(),
     crowd.forEach((acc, i) => {
       const share = i === crowd.length - 1 ? rest : (rest * BigInt(Math.round((0.5 + r()) * 1000))) / BigInt(1000 * (crowd.length - i))
       rest -= share
-      plan.push({ t: start + (r() * at * 0.9 + 0.01) * nightMs, account: acc, units: share })
+      plan.push({ t: start + Math.floor((r() * at * 0.9 + 0.005) * nightMs), account: acc, units: share })
     })
-    if (mineWood > 0n) plan.push({ t: start + at * 0.35 * nightMs, account: me, units: mineWood })
+    if (mineWood > 0n) plan.push({ t: start + Math.floor(at * 0.3 * nightMs), account: me, units: mineWood })
     plan.sort((a, b) => a.t - b.t)
     for (const p of plan) if (p.units > 0n) e.throw(p.account, p.units, p.t)
-    // After now: a few more throws keep the night alive on screen (not for the outcome presets).
+    // after now: a few more throws keep the night alive on screen (not for the outcome presets)
     const later = []
-    if (P.at < 1) {
-      for (let k = 0; k < 4; k++) later.push({ t: now + (6 + k * 9 + r() * 6) * 1000, account: world.players[(k + 5) % world.players.length].id, amount: 40 + Math.round(r() * 200) })
-    }
+    if (P.at < 1) for (let k = 0; k < 4; k++) later.push({ t: now + Math.floor((6 + k * 9 + r() * 6) * 1000), account: world.players[(k + 5) % world.players.length].id, amount: 8 + Math.round(r() * 30) })
     world.overrides.set(n, later)
-    // A night that just ended waits for the page to settle it: nobody else calls in the first seconds.
+    // a night that just ended waits for the page to settle it: nobody else calls in the first seconds
     if (P.at >= 1) world.overrides.set(n + 1, world.plan(n + 1).filter((x) => x.t > now + 8000))
-  } else if (P.mine) {
+  } else {
     world.done.set(n, 0)
     world.advance(now)
   }
@@ -605,12 +715,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /** Same surface as chain.js's Client, served from a MockWorld in this tab. */
 export class MockClient {
-  constructor({ scene = 'live', nightMs = 300_000, latency = 220 } = {}) {
+  constructor({ scene = 'live', nightMs = 300_000, latency = 220, contract = 'bonfire-stage.testnet' } = {}) {
     this.mock = true
     this.scene = scene
     this.nightMs = nightMs
     this.latency = latency
-    this.contract = 'bonfire-coin.testnet'
+    this.contract = contract
     this.identity = null
     this._world = null
     this.txs = []
@@ -653,6 +763,12 @@ export class MockClient {
   history(from, limit) {
     return this.call((e) => e.historyView(from, limit))
   }
+  estimate(amount) {
+    return this.call((e) => e.estimateView(amount, Date.now()))
+  }
+  recentThrows() {
+    return this.call((e) => e.recentView())
+  }
   ftMetadata() {
     return this.call((e) => e.metadataView())
   }
@@ -664,7 +780,7 @@ export class MockClient {
   }
 
   record(kind, failure = null) {
-    const entry = { kind, hash: fakeHash(this.r), gas: 2.4e12 + this.r() * 3e12, at: Date.now(), failure, mock: true }
+    const entry = { kind, hash: fakeHash(this.r), gas: 1.5e12 + this.r() * 2e12, at: Date.now(), failure, mock: true }
     this.txs.unshift(entry)
     this.txs = this.txs.slice(0, 40)
     this.onTx?.(entry)
@@ -679,18 +795,20 @@ export class MockClient {
     const e = w.engine
     const me = this.identity.account
     const settled = e.catchUp(now)
+    const collected = e.credit(me).amount
     const a = JSON.parse(actionJson)
-    const named = a.throw?.night ?? a.claim_kindling?.night
+    const named = a.throw?.night ?? a.claim_kindling?.night ?? a.collect?.night
     const clock = e.clock(now)
     let res
     if (named !== clock) res = { error: `the action is for night ${named}, but this is night ${clock}` }
     else if (a.throw) res = e.throw(me, big(a.throw.amount), now)
     else if (a.claim_kindling) res = e.claimKindling(me, now)
+    else if (a.collect) res = { ok: true }
     else res = { error: 'unknown action' }
     const h = e.holders.get(me)
     if (h) h.nonce += 1
     this.record('act')
-    return { ok: !res.error, error: res.error ?? null, nonce: h?.nonce ?? 0, night: e.night, settled }
+    return { ok: !res.error, error: res.error ?? null, nonce: h?.nonce ?? 0, night: e.night, settled, collected: s(collected) }
   }
 
   async settle() {
@@ -702,6 +820,13 @@ export class MockClient {
     this.record('settle')
     return { settled, night: e.night, nights_due: e.clock(now) - e.night, ends_ms: e.end(e.night) }
   }
-}
 
-export { kindlingAction }
+  async collect(account) {
+    await wait(this.latency * 2)
+    const now = Date.now()
+    this.world.advance(now)
+    const out = this.world.engine.collect(account, now)
+    this.record('collect')
+    return out
+  }
+}

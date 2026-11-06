@@ -1,9 +1,9 @@
-// Talks to the Bonfire contract: the player's local key, the public gas pool, the views, `act` and
-// `settle`, with retries over keys and RPC hosts. The UI never sees a transaction; it sees promises
+// Talks to the Bonfire contract: the player's local key, the public gas pool, the views, `act`,
+// `settle` and `collect`, with retries over keys and RPC hosts. The UI never sees a transaction; it sees promises
 // that resolve to outcomes, and friendly errors when the network is in a mood.
 // (The gas pool and the retry logic are taken over from Lantern Row, an earlier game by the same author.)
 import { Rpc, RpcError, encodeTx, functionCallAction, hex, implicitAccount, keyFromNearString, keyFromSeed, newKey, sign, signTx, sleep, summarise, txHash, unhex, utf8 } from './near.js'
-import { ACT_GAS, CONTRACT, GAS_ACCOUNT, GAS_KEYS, RPC_HOSTS, SETTLE_GAS } from './config.js'
+import { ACT_GAS, COLLECT_GAS, CONTRACT, GAS_ACCOUNT, GAS_KEYS, RPC_HOSTS, SETTLE_GAS } from './config.js'
 import { nextNonce, signingText } from './logic.js'
 
 const STORE_KEY = 'bonfire:key:v1'
@@ -192,6 +192,12 @@ export class Client {
   ftMetadata() {
     return this.view('ft_metadata')
   }
+  estimate(amount) {
+    return this.view('estimate', { amount: amount.toString() })
+  }
+  recentThrows() {
+    return this.view('recent_throws')
+  }
   accessKeys() {
     return this.rpc.accessKeyList(this.contract)
   }
@@ -254,6 +260,14 @@ export class Client {
     const r = await this.pool.relay(this.contract, 'settle', {}, SETTLE_GAS, { attempts: 3 })
     this.record('settle', r)
     if (r.failure) throw new FriendlyError('Dawn did not come through. Trying again shortly.', new Error(r.failure))
+    return r.value
+  }
+
+  /** Credits `account` with what a settled night owes it. Anyone may call it for anyone. */
+  async collect(account) {
+    const r = await this.pool.relay(this.contract, 'collect', { account_id: account }, COLLECT_GAS, { attempts: 2 })
+    this.record('collect', r)
+    if (r.failure) throw new FriendlyError('Collecting did not go through. Nothing was lost.', new Error(r.failure))
     return r.value
   }
 }
