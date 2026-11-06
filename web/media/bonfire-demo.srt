@@ -1,0 +1,76 @@
+1
+00:00:00,400 --> 00:00:02,749
+A memecoin you light together.
+
+2
+00:00:05,400 --> 00:00:09,140
+A first-time visitor: no wallet, no sign-up.
+
+3
+00:00:09,190 --> 00:00:12,527
+One tap brings two hundred EMBER of free kindling.
+
+4
+00:00:12,577 --> 00:00:18,974
+The pile is cold, so wood counts almost four
+times. Throw a hundred: the firestarter.
+
+5
+00:00:19,668 --> 00:00:25,600
+Then the demo bots, each labelled as a bot.
+Two early ones share your quarter of the night.
+
+6
+00:00:25,650 --> 00:00:29,803
+A steady one follows. The pile climbs toward the line.
+
+7
+00:00:29,853 --> 00:00:35,076
+A sniper waits for the end, then
+closes the gap: the last log.
+
+8
+00:00:35,276 --> 00:00:40,763
+Dawn: the fire caught. Everyone gets
+their wood back, plus new EMBER.
+
+9
+00:00:40,813 --> 00:00:47,928
+Early wood earns most: the same
+100 got 4.26 early, 1.08 sniped.
+
+10
+00:00:48,128 --> 00:00:51,931
+Next night the bots and the visitor hold back, on purpose.
+
+11
+00:00:51,981 --> 00:00:57,239
+Too little wood: the fire smokes,
+and three percent of the pile burns.
+
+12
+00:00:58,814 --> 00:01:03,669
+Three lit nights later, the coin's face reads LIT ×3.
+
+13
+00:01:03,719 --> 00:01:08,177
+The contract draws it, so every
+wallet shows tonight's fire.
+
+14
+00:01:08,377 --> 00:01:15,425
+Every tap was a real transaction. And the
+contract has no keys: nobody can change a rule.
+
+15
+00:01:15,625 --> 00:01:18,870
+Sixty simulated nights picked every number.
+
+16
+00:01:21,125 --> 00:01:25,543
+Bonfire. Play it on NEAR testnet, no wallet needed.
+
+17
+00:01:25,593 --> 00:01:28,836
+Would you throw early, or wait and snipe?
+
