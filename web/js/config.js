@@ -29,7 +29,7 @@ export const DEPLOYMENTS = {
   },
   stage: {
     contract: 'bonfire-stage.testnet',
-    gasAccount: 'bonfire-stage-gas.testnet',
+    gasAccount: 'bonfire-gas.testnet',
     codeHash: null,
     gasKeys: [],
   },
