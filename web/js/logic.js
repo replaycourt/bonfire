@@ -68,6 +68,16 @@ export function fmtWhole(units, decimals) {
   return group(big(units) / pow10(decimals))
 }
 
+/** Base units with a fixed number of decimals, rounded down: "3,100,105.95", for ledger sums. */
+export function fmtFixed(units, decimals, places = 2) {
+  const u = big(units)
+  const neg = u < 0n
+  const a = neg ? -u : u
+  const p = pow10(decimals)
+  const frac = ((a % p) * 10n ** BigInt(places)) / p
+  return (neg ? '-' : '') + group(a / p) + (places > 0 ? '.' + frac.toString().padStart(places, '0') : '')
+}
+
 /** Time left as m:ss below an hour, h:mm:ss below a day, "2d 03h" beyond. */
 export function fmtCountdown(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000))
@@ -523,6 +533,74 @@ export function supplySeries(history, decimals) {
 /** `from` for history(): the oldest of the last `count` settled nights. */
 export function historyFrom(openNight, count) {
   return Math.max(1, openNight - count)
+}
+
+// ---- the ledger: every mint and burn ------------------------------------------------------------
+
+/**
+ * One ledger row per settled night, newest first. `rows` are history rows, oldest first and without
+ * gaps; `details` maps a night to its night() view where the page has one (the contract keeps the
+ * last `log_keep`), which splits the mint into the throwers' part and the hearth's cut and the burn
+ * into pile smoke and hearth burn, and gives the exact streak. A LIT row's streak is only counted
+ * when the rows reach back to a night that was not LIT, or to `firstNight`, the oldest night kept.
+ */
+export function ledgerRows(rows, details = new Map(), firstNight = 1) {
+  const out = []
+  let streak = 0
+  let known = rows.length > 0 && rows[0].night <= firstNight
+  for (const r of rows) {
+    const d = details.get(r.night) ?? null
+    if (r.outcome === 'LIT') streak++
+    else {
+      streak = 0
+      known = true
+    }
+    const minted = big(r.minted)
+    const burned = big(r.burned)
+    const hearthCut = d && r.outcome === 'LIT' ? big(d.hearth_cut) : null
+    const hearthBurn = d && r.outcome !== 'LIT' ? big(d.hearth_burned) : null
+    const count = d ? d.streak : known ? streak : null
+    out.push({
+      night: r.night,
+      outcome: r.outcome,
+      word: r.outcome === 'LIT' ? (count ? `LIT ×${count}` : 'LIT') : r.outcome,
+      target: big(r.target),
+      pile: big(r.pile),
+      minted,
+      burned,
+      hearthCut,
+      shared: hearthCut === null ? null : minted - hearthCut,
+      hearthBurn,
+      pileBurn: hearthBurn === null ? null : burned - hearthBurn,
+      supply: big(r.supply),
+    })
+  }
+  return out.reverse()
+}
+
+/**
+ * The books in one line: genesis + everything minted - everything burned must be the supply.
+ * From config() and state() alone, so the page can show it without loading every night.
+ */
+export function ledgerCheck(cfg, state) {
+  const genesis = big(cfg.genesis_supply)
+  const minted = big(state.records?.total_minted)
+  const burned = big(state.records?.total_burned)
+  const supply = big(state.supply)
+  return { genesis, minted, burned, supply, ok: genesis + minted - burned === supply }
+}
+
+/** The history() call for the page of `size` nights before `oldest` (the oldest night loaded). */
+export function olderPage(oldest, size) {
+  const from = Math.max(1, oldest - size)
+  return { from, limit: Math.max(0, oldest - from) }
+}
+
+/** Joins loaded history rows into one list, oldest first, each night once. */
+export function mergeHistory(...lists) {
+  const by = new Map()
+  for (const list of lists) for (const r of list ?? []) by.set(r.night, r)
+  return [...by.values()].sort((a, b) => a.night - b.night)
 }
 
 /**

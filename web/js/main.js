@@ -24,6 +24,7 @@ const S = {
   seen: null, // keys of recent throws already shown
   model: null,
   history: [],
+  ledger: { shown: 12, older: [], complete: false, details: new Map(), asked: new Set(), loading: false },
   offset: null,
   offsetAt: 0,
   lastSettled: null,
@@ -139,6 +140,7 @@ function wire() {
   })
   U.$('btn-kindle').addEventListener('click', onKindle)
   U.$('btn-collect').addEventListener('click', onCollect)
+  U.$('btn-older').addEventListener('click', showOlder)
   U.$('drawer-close').addEventListener('click', U.closeDrawer)
   U.$('drawer-backdrop').addEventListener('click', U.closeDrawer)
   document.addEventListener('keydown', (e) => e.key === 'Escape' && U.drawerOpen() && U.closeDrawer())
@@ -283,11 +285,78 @@ function showBanner(last, result) {
 async function loadHistory() {
   try {
     const n = S.state?.night ?? 1
-    S.history = await client.history(L.historyFrom(n, 200), 200)
+    const from = L.historyFrom(n, 200)
+    S.history = await client.history(from, 200)
+    if (from === 1) S.ledger.complete = true
     renderHistory()
   } catch (e) {
     console.info('history', e?.message ?? e)
   }
+}
+
+// ---- the ledger ---------------------------------------------------------------------------------
+
+const LEDGER_PAGE = 12
+
+/** Every settled night the page has loaded, oldest first. */
+const ledgerAll = () => L.mergeHistory(S.ledger.older, S.history)
+
+function renderLedger() {
+  if (!S.cfg || !S.state) return
+  const dec = S.cfg.config.decimals
+  const all = ledgerAll()
+  const first = S.ledger.complete && all.length ? all[0].night : 1
+  const rows = L.ledgerRows(all, S.ledger.details, first)
+  const shown = rows.slice(0, S.ledger.shown)
+  U.$('ledger').innerHTML = U.ledgerHtml(shown, { decimals: dec, explorer: EXPLORER, contract: client.contract, mock: MOCK })
+  U.$('ledger-check').innerHTML = U.ledgerCheckHtml(L.ledgerCheck(S.cfg, S.state), { decimals: dec, symbol: S.cfg.config.symbol })
+  U.$('ledger-events').innerHTML = U.ledgerEventsHtml({ explorer: EXPLORER, contract: client.contract, mock: MOCK })
+  const settled = S.state.night - 1
+  const more = shown.length < rows.length || (!S.ledger.complete && all.length > 0 && all[0].night > 1)
+  U.$('btn-older').hidden = !more
+  U.$('btn-older').disabled = S.ledger.loading
+  U.setText('ledger-count', settled > 0 ? `${shown.length} of ${settled} night${settled === 1 ? '' : 's'}` : '')
+  fetchDetails(shown)
+}
+
+/** The mint and burn split of the rows on screen, from night(n), for nights the contract still keeps. */
+async function fetchDetails(rows) {
+  const keep = Number(S.cfg.config.log_keep)
+  const want = rows.map((r) => r.night).filter((n) => n > S.state.night - 1 - keep && !S.ledger.asked.has(n))
+  if (!want.length) return
+  want.forEach((n) => S.ledger.asked.add(n))
+  let got = 0
+  for (let i = 0; i < want.length; i += 3) {
+    const views = await Promise.all(want.slice(i, i + 3).map((n) => client.night(n).catch(() => null)))
+    for (const v of views) {
+      if (!v || v.outcome === 'OPEN') continue
+      S.ledger.details.set(v.night, v)
+      got++
+    }
+  }
+  if (got) renderLedger()
+}
+
+/** "Show older nights": the next page from what is loaded, else from history(from, limit). */
+async function showOlder() {
+  const all = ledgerAll()
+  S.ledger.shown += LEDGER_PAGE
+  if (S.ledger.shown > all.length && !S.ledger.complete && all.length && all[0].night > 1) {
+    S.ledger.loading = true
+    renderLedger()
+    try {
+      const { from, limit } = L.olderPage(all[0].night, Math.max(LEDGER_PAGE, 100))
+      const page = (await client.history(from, limit)).filter((r) => r.night < all[0].night)
+      S.ledger.older = L.mergeHistory(page, S.ledger.older)
+      if (from === 1 || page.length < limit) S.ledger.complete = true
+    } catch (e) {
+      console.info('older history', e?.message ?? e)
+      U.toast('Older nights are out of reach right now. Try again in a moment.', 'warn')
+    } finally {
+      S.ledger.loading = false
+    }
+  }
+  renderLedger()
 }
 
 async function loadIcon() {
@@ -610,6 +679,7 @@ function renderHistory() {
   U.renderStrip(U.$('strip'), strip, { decimals: dec, symbol: sym })
   U.setText('strip-word', strip.length ? strip[strip.length - 1].word : '')
   U.renderChart(U.$('chart'), L.supplySeries(S.history, dec), { symbol: sym })
+  renderLedger()
 }
 
 function renderRecords() {

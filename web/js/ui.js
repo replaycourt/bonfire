@@ -1,6 +1,6 @@
 // DOM helpers: the strip of last nights, the supply chart, records, the proof drawer and the
 // "How it works" text. Everything that comes from the chain goes in through textContent or esc().
-import { fmtDuration, fmtEmber, fmtFactor, fmtInt, fmtPct, fmtWhole, toWhole } from './logic.js'
+import { fmtDuration, fmtEmber, fmtFactor, fmtFixed, fmtInt, fmtPct, fmtWhole, toWhole } from './logic.js'
 
 export const $ = (id) => document.getElementById(id)
 const SVG = 'http://www.w3.org/2000/svg'
@@ -239,6 +239,49 @@ function compactNumber(v) {
   if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 3).replace(/\.?0+$/, '') + 'M'
   if (v >= 1e4) return Math.round(v / 1e3) + 'k'
   return fmtInt(Math.round(v))
+}
+
+// ---- the ledger ---------------------------------------------------------------------------------
+
+/**
+ * The ledger table: one row per settled night, newest first (rows from ledgerRows). history() has
+ * no transaction hashes, so each row links to the contract account's activity on the explorer; in
+ * mock mode there is nothing to link to.
+ */
+export function ledgerHtml(rows, { decimals, explorer, contract, mock }) {
+  if (!rows.length) return '<p class="ledger-empty">No night has ended yet. The first row appears at the first dawn.</p>'
+  const f = (u) => esc(fmtFixed(u, decimals))
+  const w = (u) => esc(fmtWhole(u, decimals))
+  const dash = '<span class="muted">–</span>'
+  const link = mock
+    ? () => dash
+    : (n) => `<a href="${esc(explorer)}/address/${esc(contract)}" target="_blank" rel="noopener" title="The contract's activity on the explorer (the rows have no single transaction)" aria-label="Night ${n}: the contract's activity on the explorer">↗</a>`
+  const body = rows
+    .map((r) => {
+      const o = r.outcome.toLowerCase()
+      const minted = r.minted > 0n ? `+${f(r.minted)}${r.hearthCut !== null ? `<small>${f(r.shared)} to throwers · ${f(r.hearthCut)} to the hearth</small>` : ''}` : dash
+      const burned = r.burned > 0n ? `−${f(r.burned)}${r.hearthBurn !== null ? `<small>${f(r.pileBurn)} pile smoke · ${f(r.hearthBurn)} hearth</small>` : ''}` : dash
+      return `<tr class="${esc(o)}"><td data-label="Night">${r.night}</td><td data-label="Outcome"><span class="tag ${esc(o)}">${esc(r.word)}</span></td><td data-label="Target">${w(r.target)}</td><td data-label="Pile">${r.pile > 0n ? w(r.pile) : dash}</td><td data-label="Minted" class="num mint">${minted}</td><td data-label="Burned" class="num burn">${burned}</td><td data-label="Supply after" class="num">${f(r.supply)}</td><td class="link">${link(r.night)}</td></tr>`
+    })
+    .join('')
+  return `<table class="ledger"><thead><tr><th scope="col">Night</th><th scope="col">Outcome</th><th scope="col">Target</th><th scope="col">Pile</th><th scope="col" class="num">Minted</th><th scope="col" class="num">Burned</th><th scope="col" class="num">Supply after</th><th scope="col"><span class="sr-only">Explorer</span></th></tr></thead><tbody>${body}</tbody></table>`
+}
+
+/** Where the same numbers live on chain: the NEP-297 events, and links to see them. */
+export function ledgerEventsHtml({ explorer, contract, mock }) {
+  const links = mock
+    ? ' <span class="muted">(mock mode: nothing on chain to link to)</span>'
+    : ` See them under the <a href="${esc(explorer)}/token/${esc(contract)}" target="_blank" rel="noopener">token's transfers</a> or the <a href="${esc(explorer)}/address/${esc(contract)}" target="_blank" rel="noopener">contract's activity</a>.`
+  return `Every mint and burn is also a NEP-297 event in the receipt of the call that settled the night: <code>ft_mint</code> with memo <code>night N lit</code>, <code>ft_burn</code> with <code>night N smoke</code> and <code>night N hearth smoke</code>.${links}`
+}
+
+/** The books in one line, from ledgerCheck: genesis + minted - burned = supply. */
+export function ledgerCheckHtml(c, { decimals, symbol }) {
+  const f = (u) => esc(fmtFixed(u, decimals))
+  const sum = `${f(c.genesis)} genesis + ${f(c.minted)} minted − ${f(c.burned)} burned = <b>${f(c.genesis + c.minted - c.burned)}</b>`
+  return c.ok
+    ? `${sum}, the supply of ${esc(symbol)} now <span class="good">✓</span>`
+    : `${sum}, but the supply is ${f(c.supply)} <span class="bad">✗ the books do not add up</span>`
 }
 
 // ---- proof drawer -------------------------------------------------------------------------------
