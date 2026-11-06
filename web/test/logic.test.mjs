@@ -50,6 +50,11 @@ test('names: implicit accounts shortened, named accounts by their first label, t
   assert.equal(L.nameOf('a-very-long-account-label-here.testnet', 'me'), 'a-very-long-acco…')
   assert.equal(L.nameOf(hex, hex), 'you')
   assert.equal(L.nameOf(null, 'me'), '')
+  // the deployment's demo bots go by their labels, and the player is still "you"
+  const bots = { [hex]: 'demo-bot-early-a' }
+  assert.equal(L.nameOf(hex, 'me', bots), 'demo-bot-early-a')
+  assert.equal(L.nameOf(hex, hex, bots), 'you')
+  assert.equal(L.nameOf('constructor', 'me', bots), 'constructor', 'only own keys of the label map')
 })
 
 // ---- the ritual's arithmetic: the contract's own test numbers ---------------------------------------
@@ -282,6 +287,40 @@ test('share preview from estimate: the throw adds its weight and the totals foll
   assert.ok(p2.gain > 0n && p2.gain < p2.reward)
 })
 
+test('throw hint: the factor and the gain; when the player holds all the weight, what more wood does', () => {
+  // nobody on tonight's pile yet but others: a throw gains a share
+  const m = L.deriveModel({ cfg, state: state(), holder: holder(), nowMs: 1_700_000 })
+  const p = L.previewFromEstimate(m, L.estimateLocal({ cfg, state: state(), amount: E(50), nowMs: 1_700_000 }), cfg)
+  assert.equal(L.throwHint(m, E(50), p), `Throw 50 now: it counts ${L.fmtFactor(p.factorBp)}, about +${L.fmtEmber(p.gain, D)} new EMBER if the fire catches.`)
+  // the player alone on the pile: the whole mint is already its own, so the gain is 0
+  const woods = [E(50), 0n, 0n, 0n]
+  const ws = L.windowWeights(woods, E(400), 40_000, 2_500)
+  const mine = [{ window: 0, wood: E(50).toString() }]
+  const alone = holder({ wood_night: 3, wood: E(50).toString(), wood_by_window: mine, weight: L.weightOf(ws, mine).toString() })
+  const st = state(woods, { throwers: 1 })
+  const m2 = L.deriveModel({ cfg, state: st, holder: alone, nowMs: 1_700_000 })
+  const p2 = L.previewFromEstimate(m2, L.estimateLocal({ cfg, state: st, amount: E(25), nowMs: 1_700_000 }), cfg)
+  assert.equal(p2.gain, 0n)
+  assert.equal(L.throwHint(m2, E(25), p2), `Throw 25 now: it counts ${L.fmtFactor(p2.factorBp)}. Tonight's new EMBER is all yours so far; more wood helps the fire catch.`)
+  assert.ok(!/\+0 new/.test(L.throwHint(m2, E(25), p2)))
+  // a gain that rounds to nothing for someone who is not alone
+  assert.equal(L.throwHint(m, 1n, { ...p, gain: 0n }), `Throw 0.000000000000000001 now: it counts ${L.fmtFactor(p.factorBp)}. Too little to change your share of the new EMBER.`)
+})
+
+test('ready to collect: the credit is said to be in the balance already, which counts it', () => {
+  const h = holder({ balance: E(620).toString(), credited: E(500).toString(), pending: E(120).toString(), wood_night: 2, wood: E(100).toString() })
+  const m = L.deriveModel({ cfg, state: state(), holder: h, nowMs: 1_750_000 })
+  assert.equal(m.balance, m.credited + m.pending)
+  assert.equal(L.readyText(m), 'from night 2 is already in your balance. Collect it now, or your next throw will.')
+})
+
+test('kindling handed out: the newcomer is told when the next claim opens', () => {
+  assert.equal(L.kindlingNote('gone', 192_000), 'Tonight’s kindling is handed out. The next claim opens at dawn, in 3:12.')
+  assert.equal(L.kindlingNote('dry', 0), 'The hearth has no kindling left.')
+  assert.equal(L.kindlingNote('claimed', 0), 'You have no free EMBER right now.')
+  assert.equal(L.kindlingNote('', 0), '')
+})
+
 test('model: kindling availability and its reasons', () => {
   const fresh = { registered: false, balance: '0', credited: '0', pending: '0', wood_night: null, wood: '0', wood_by_window: [], weight: '0', nonce: 0, may_take_kindling: true, held: false, kindled: false }
   const k = (s) => L.deriveModel({ cfg, state: state(undefined, s), holder: fresh, nowMs: 1_750_000 }).kindle
@@ -322,7 +361,11 @@ test('night result: the player credit, the names, and the words for each outcome
   const r = L.nightResult(nv, mine, 'me', D, 'EMBER')
   assert.equal(r.word, 'LIT ×4')
   assert.equal(r.text, 'Your 100 wood comes back, plus 3.5 new EMBER.')
-  assert.equal(r.names, 'Firestarter demo-bot-early-a · last log you (40)')
+  assert.equal(r.names, 'Firestarter: demo-bot-early-a · Last log: you (40)')
+  const bot = 'f057' + '0'.repeat(56) + '6bb0'
+  const byBot = L.nightResult({ ...nv, firestarter: bot, last_log: { account: bot, amount: E(40).toString() } }, holder(), 'me', D, 'EMBER', { [bot]: 'demo-bot-early-b' })
+  assert.equal(byBot.names, 'Firestarter: demo-bot-early-b · Last log: demo-bot-early-b (40)')
+  assert.equal(L.nightResult({ ...nv, firestarter: bot, last_log: null }, holder(), 'me', D, 'EMBER').names, 'Firestarter: f057…6bb0')
   assert.equal(L.nightResult(nv, holder(), 'me', D, 'EMBER').text, '5 throwers shared 14.4 new EMBER.')
   const smoked = { ...nv, outcome: 'SMOKED', streak: 0, pile: E(300).toString(), burned: E(10).toString(), last_log: null }
   assert.equal(L.nightResult(smoked, holder({ wood_night: 9, wood: E(100).toString(), pending: E(97).toString() }), 'me', D, 'EMBER').text, '97 of your 100 wood comes back; 3 burned.')
@@ -330,6 +373,36 @@ test('night result: the player credit, the names, and the words for each outcome
   const cold = L.nightResult({ ...nv, outcome: 'COLD', streak: 0, pile: '0', throwers: 0, firestarter: null, last_log: null }, holder(), 'me', D, 'EMBER')
   assert.equal(cold.word, 'COLD')
   assert.equal(cold.names, '')
+})
+
+test('the moon passes under the clock and the rules, never behind them', () => {
+  // desktop 1440 x 900: the text ends 228 px down; at midnight the scene lifts the moon by 4.5 % of 900
+  const y = L.moonY(0.32, { top: 0, height: 900 }, { bottom: 228 })
+  assert.ok(y * 900 - 0.045 * 900 - 24 > 228, 'the top of the moon clears the text at midnight')
+  assert.ok(y < 0.4)
+  // phone: a 540 px stage whose text ends 255 px down (the old 0.47 put the moon right behind it)
+  const p = L.moonY(0.47, { top: 60, height: 540 }, { bottom: 315 })
+  assert.ok(p * 540 - 0.045 * 540 - 24 > 255)
+  assert.ok(p * 540 < 324, 'still above the horizon at dusk and dawn')
+  // a tall stage keeps the designed height; no measurements, no change
+  assert.equal(L.moonY(0.32, { top: 0, height: 1100 }, { bottom: 150 }), 0.32)
+  assert.equal(L.moonY(0.32, null, null), 0.32)
+})
+
+test('dawn: a page waits a random moment and settles only while the chain has a night due', () => {
+  assert.equal(L.settleDelay(() => 0), 0)
+  assert.equal(L.settleDelay(() => 0.5), L.SETTLE_JITTER_MS / 2)
+  assert.ok(L.SETTLE_JITTER_MS >= 5000, 'wider than the second or two a settle takes to show in the views')
+  assert.ok(L.settleDelay(() => 1) < L.SETTLE_JITTER_MS)
+  for (let i = 0; i < 50; i++) {
+    const d = L.settleDelay()
+    assert.ok(d >= 0 && d < L.SETTLE_JITTER_MS)
+  }
+  assert.equal(L.settleNeeded(state(undefined, { due: true, nights_due: 1 })), true)
+  // another visitor settled first: the view moved on and nothing is due
+  assert.equal(L.settleNeeded(state(undefined, { due: false, nights_due: 0 })), false)
+  assert.equal(L.settleNeeded(null), false)
+  assert.equal(L.settleNeeded(state(undefined, { due: true, nights_due: 1 }), true), false, 'a hidden tab leaves it to others')
 })
 
 // ---- people and collecting --------------------------------------------------------------------------
@@ -356,6 +429,21 @@ test('collect candidates: settled nights only, never the player, each account on
   assert.deepEqual(L.collectCandidates(recent, 4, 'me', new Set(), 4), ['a.testnet', 'b.testnet', 'old.testnet'])
   assert.deepEqual(L.collectCandidates(recent, 4, 'me', new Set(['a.testnet']), 1), ['b.testnet'])
   assert.deepEqual(L.collectCandidates([], 4, 'me', new Set(), 4), [])
+})
+
+test('collecting for others: throwers already collected do not use up the round', async () => {
+  const pending = { late: 0n, steady: 0n, a: E(5), b: E(7), c: E(9) }
+  const sent = []
+  const tried = new Set()
+  const n = await L.helpCollectRound({ candidates: ['late', 'steady', 'a', 'b', 'c'], tried, max: 2, pendingOf: async (x) => pending[x], collect: async (x) => sent.push(x) })
+  // before, the round took the first two candidates only, both already collected, and relayed nothing
+  assert.equal(n, 2)
+  assert.deepEqual(sent, ['a', 'b'])
+  assert.deepEqual([...tried], ['late', 'steady', 'a', 'b'])
+  const errors = []
+  const m = await L.helpCollectRound({ candidates: ['c', 'a'], tried: new Set(), max: 2, pendingOf: async () => E(1), collect: async () => { throw new Error('relay busy') }, onError: (x, e) => errors.push(`${x}: ${e.message}`) })
+  assert.equal(m, 0)
+  assert.deepEqual(errors, ['c: relay busy'], 'stops at the first error')
 })
 
 test('only SVG data URLs pass as the coin icon', () => {

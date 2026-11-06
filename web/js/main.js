@@ -5,7 +5,7 @@
 // nothing that did not come from the chain.
 import { ed25519Supported } from './near.js'
 import { ActionQueue, Client, FriendlyError, loadOrCreateIdentity, notDeployed } from './chain.js'
-import { CODE_HASH, CONTRACT, DEPLOYMENT, EXPLORER, GAS_ACCOUNT, HELP_COLLECTS_PER_VISIT } from './config.js'
+import { BOTS, CODE_HASH, CONTRACT, DEPLOYMENT, EXPLORER, GAS_ACCOUNT, HELP_COLLECTS_PER_VISIT } from './config.js'
 import { Scene } from './scene.js'
 import { Sound } from './audio.js'
 import * as L from './logic.js'
@@ -35,7 +35,7 @@ const S = {
   failures: 0,
   phase: 'boot', // boot | live | cold | offline
   keys: null,
-  codeHash: CODE_HASH,
+  codeHash: null, // the deployed code's hash, as view_account reports it
   deployed: true,
   icon: null,
   selected: null, // index of the throw chip the hint describes
@@ -63,6 +63,7 @@ async function boot() {
   scene.setNight({ progress: 0.35, pct: 0, reached: false, pileText: '', targetText: '' })
   scene.start()
   window.addEventListener('resize', layout)
+  document.fonts?.ready.then(layout) // the rules may wrap differently once the fonts are in
   wire()
 
   if (MOCK) {
@@ -122,7 +123,7 @@ function bootFailed(e) {
 }
 
 function layout() {
-  scene.setLayout({ cx: 0.5, by: phone() ? 0.82 : 0.75, scale: phone() ? 1.28 : 1.12, moonY: phone() ? 0.47 : 0.32 })
+  scene.setLayout({ cx: 0.5, by: phone() ? 0.82 : 0.75, scale: phone() ? 1.28 : 1.12, moonY: L.moonY(phone() ? 0.47 : 0.32, U.$('stage')?.getBoundingClientRect(), document.querySelector('.sky-text')?.getBoundingClientRect()) })
 }
 
 function wire() {
@@ -216,8 +217,8 @@ function spotThrows() {
 /** The night's firestarter and last log, the moment they happen. */
 function spotNames(state) {
   const me = client.identity?.account
-  if (state.firestarter && S.firestarter !== null && S.firestarter !== state.firestarter && state.firestarter) scene.cheer(`${L.nameOf(state.firestarter, me)} lit the first log`)
-  if (state.last_log && S.lastLog !== null && !S.lastLog && state.last_log) scene.cheer(`Last log: ${L.nameOf(state.last_log.account, me)}`, true)
+  if (state.firestarter && S.firestarter !== null && S.firestarter !== state.firestarter && state.firestarter) scene.cheer(`${L.nameOf(state.firestarter, me, BOTS)} lit the first log`)
+  if (state.last_log && S.lastLog !== null && !S.lastLog && state.last_log) scene.cheer(`Last log: ${L.nameOf(state.last_log.account, me, BOTS)}`, true)
   S.firestarter = state.firestarter ?? ''
   S.lastLog = state.last_log ?? ''
 }
@@ -227,6 +228,14 @@ async function settleSoon() {
   S.settling = true
   S.lastSettleTry = Date.now()
   try {
+    // Every open page sees dawn at the same moment. Each waits a random moment and settles only if
+    // the chain still has a night due, so the gas pool pays for one settle a dawn, not one per page.
+    await new Promise((r) => setTimeout(r, L.settleDelay()))
+    if (!L.settleNeeded(await client.state(), document.hidden)) {
+      S.lastSettleTry = Date.now() - 3500 // the chain's clock may lag ours: look again shortly
+      schedule(150)
+      return
+    }
     const out = await client.settle()
     if (out?.nights_due > 0) S.lastSettleTry = 0
     schedule(150)
@@ -245,7 +254,7 @@ async function onSettled(last) {
   else sound.hiss()
   let result = null
   try {
-    result = L.nightResult(await client.night(last.night), S.holder, client.identity?.account, S.cfg.config.decimals, S.cfg.config.symbol)
+    result = L.nightResult(await client.night(last.night), S.holder, client.identity?.account, S.cfg.config.decimals, S.cfg.config.symbol, BOTS)
   } catch {
     /* the banner falls back to the outcome alone */
   }
@@ -308,21 +317,19 @@ function scheduleHelp(ms) {
 }
 
 async function helpCollect() {
-  if (!S.state || !client.canAct || queue.busy) return
+  if (!S.state || !client.canAct) return
+  // the player's own move goes first; look again in a little while
+  if (queue.busy) return scheduleHelp(8_000)
   const me = client.identity?.account
   const left = HELP_COLLECTS_PER_VISIT - S.helped
-  for (const account of L.collectCandidates(S.recent, S.state.night, me, S.tried, Math.min(2, left))) {
-    S.tried.add(account)
-    try {
-      const h = await client.holder(account)
-      if (L.big(h.pending) <= 0n) continue
-      await client.collect(account)
-      S.helped++
-    } catch (e) {
-      console.info('collect for', account.slice(0, 12), e?.message ?? e)
-      return
-    }
-  }
+  S.helped += await L.helpCollectRound({
+    candidates: L.collectCandidates(S.recent, S.state.night, me, S.tried, 6),
+    tried: S.tried,
+    max: Math.min(2, left),
+    pendingOf: async (account) => L.big((await client.holder(account)).pending),
+    collect: (account) => client.collect(account),
+    onError: (account, e) => console.info('collect for', account.slice(0, 12), e?.message ?? e),
+  })
 }
 
 // ---- actions ------------------------------------------------------------------------------------
@@ -462,9 +469,9 @@ function render() {
   U.setText('throwers', String(m.throwers))
   U.setText('streak', m.streak === 1 ? '1 night' : `${m.streak} nights`)
   U.setText('hearth', L.fmtEmber(m.hearth, m.dec, { compact: true }))
-  U.setText('firestarter', m.firestarter ? L.nameOf(m.firestarter, me) : 'nobody yet')
+  U.setText('firestarter', m.firestarter ? L.nameOf(m.firestarter, me, BOTS) : 'nobody yet')
   U.$('firestarter').classList.toggle('muted', !m.firestarter)
-  U.setText('last-log', m.lastLog ? `${L.nameOf(m.lastLog.account, me)} · ${f(m.lastLog.amount)}` : m.reached ? '–' : 'not yet')
+  U.setText('last-log', m.lastLog ? `${L.nameOf(m.lastLog.account, me, BOTS)} · ${f(m.lastLog.amount)}` : m.reached ? '–' : 'not yet')
   U.$('last-log').classList.toggle('muted', !m.lastLog)
   U.setText('kindling-left', m.kindlingLeft > 0 ? `Kindling left tonight: ${m.kindlingLeft} of ${m.kindlingPerNight}` : 'No kindling left tonight')
   renderYou()
@@ -482,6 +489,7 @@ function tickClock() {
   U.setText('countdown', due ? 'Dawn' : L.fmtCountdown(left))
   U.setText('until', due ? (client.canAct ? 'lighting the fire…' : 'the next visitor lights the fire') : 'until dawn')
   U.$('clock').classList.toggle('late', !due && left < m.nightMs * 0.15)
+  if (S.noteCountsDown) U.setText('note', L.kindlingNote('gone', left))
   if (scene) scene.progress = Math.min(1, Math.max(0, (now - m.start) / m.nightMs))
   const win = L.windowsModel({ cfg: S.cfg, state: S.state, holder: S.holder, nowMs: now })
   U.renderQuarters(U.$('quarters'), win, now)
@@ -517,7 +525,7 @@ function renderYou() {
   ready.hidden = !(m.pending > 0n && m.readyNight)
   if (!ready.hidden) {
     U.setText('ready-amount', `+${f(m.pending)}`)
-    U.setText('ready-text', `from night ${m.readyNight}, ready to collect. Your next throw collects it too.`)
+    U.setText('ready-text', L.readyText(m))
     U.$('btn-collect').disabled = !canAct || queue.busy
   }
 
@@ -557,8 +565,9 @@ function renderYou() {
   if (!S.canSign) note = 'This browser cannot make a signing key (Ed25519). Chrome 137, Safari 17 or Firefox 130 and newer can.'
   else if (!client.canAct) note = 'Watching only for now: the public gas pool that pays for moves is not funded yet.'
   else if (!showKindle && m.balance === 0n && m.myWood === 0n) {
-    note = { gone: 'Tonight’s kindling is handed out. Come back next night for yours.', dry: 'The hearth has no kindling left.', full: 'The hearth pays for no more new accounts.', claimed: 'You have no free EMBER right now.', holder: 'You have no free EMBER right now.' }[m.kindle.why] ?? ''
+    note = L.kindlingNote(m.kindle.why, m.msLeft)
   } else if (m.due) note = 'Dawn is breaking. Throws open again in a moment.'
+  S.noteCountsDown = note !== '' && note === L.kindlingNote('gone', m.msLeft)
   showNote(note)
 
   const st = U.$('status')
@@ -578,14 +587,14 @@ function hint() {
   const m = S.model
   const el = U.$('throw-hint')
   const c = selectedChoice()
+  // the chip the hint describes is marked, so the hint never seems to speak of another one
+  for (const [i, b] of [...U.$('throw-row').children].entries()) b.classList.toggle('selected', !!c && S.choices[i] === c && !!m?.canThrow)
   if (!m || !c || !m.canThrow) {
     el.textContent = ''
     return
   }
   const est = S.estimate?.est && L.big(S.estimate.est.amount) === c.amount ? S.estimate.est : L.estimateLocal({ cfg: S.cfg, state: S.state, amount: c.amount, nowMs: chainNow() })
-  const p = L.previewFromEstimate(m, est, S.cfg)
-  const f = (u) => L.fmtEmber(u, m.dec)
-  el.textContent = `Throw ${f(c.amount)} now: it counts ${L.fmtFactor(p.factorBp)}, about +${f(p.gain)} new EMBER if the fire catches.`
+  el.textContent = L.throwHint(m, c.amount, L.previewFromEstimate(m, est, S.cfg))
 }
 
 function showNote(text) {
@@ -630,6 +639,7 @@ async function openProof() {
       contract: client?.contract ?? CONTRACT,
       keys: S.keys,
       codeHash: S.codeHash,
+      expectedHash: MOCK ? null : CODE_HASH,
       account: client?.identity?.account ?? '–',
       gasAccount: GAS_ACCOUNT,
       rpcHost: client?.rpc?.host ?? '–',
@@ -643,7 +653,7 @@ async function openProof() {
     try {
       S.keys = await client.accessKeys()
       const acc = await client.viewAccount()
-      S.codeHash = acc?.code_hash ?? S.codeHash
+      S.codeHash = acc?.code_hash ?? null
     } catch (e) {
       if (notDeployed(e)) {
         S.deployed = false

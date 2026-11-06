@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CONTRACT, DEPLOYMENTS, GAS_ACCOUNT, GAS_KEYS, RPC_HOSTS, pickDeployment } from '../js/config.js'
+import { b58decode, keyFromNearString, nearPublicKey } from '../js/near.js'
 
 const WEB = fileURLToPath(new URL('..', import.meta.url))
 const html = readFileSync(join(WEB, 'index.html'), 'utf8')
@@ -52,6 +53,43 @@ function files(dir) {
   })
 }
 
+// The only private keys a shipped file may hold: the public function-call gas keys in config.js.
+const PUBLIC_GAS_SECRETS = new Set(Object.values(DEPLOYMENTS).flatMap((d) => d.gasKeys.map((k) => k.private_key)))
+
+test('every gas key is a well-formed ed25519 pair whose secret matches its public key', async () => {
+  for (const [name, d] of Object.entries(DEPLOYMENTS)) {
+    const pubs = new Set()
+    for (const k of d.gasKeys) {
+      assert.deepEqual(Object.keys(k).sort(), ['private_key', 'public_key'], `${name}: only the two key strings`)
+      assert.match(k.public_key, /^ed25519:[1-9A-HJ-NP-Za-km-z]{43,44}$/)
+      assert.match(k.private_key, /^ed25519:[1-9A-HJ-NP-Za-km-z]{80,90}$/)
+      assert.equal(b58decode(k.private_key.slice(8)).length, 64)
+      assert.equal(nearPublicKey(await keyFromNearString(k.private_key)), k.public_key, `${name}: secret and public key belong together`)
+      assert.ok(!pubs.has(k.public_key), `${name}: no key twice`)
+      pubs.add(k.public_key)
+    }
+  }
+})
+
+test('the staging deployment is ready to play: its gas pool and its code hash are filled in', () => {
+  const stage = DEPLOYMENTS.stage
+  assert.ok(stage.gasKeys.length > 0)
+  assert.match(stage.codeHash, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/)
+  assert.equal(b58decode(stage.codeHash).length, 32, 'a base58 sha256')
+})
+
+test('every deployment labels its demo bots: implicit accounts, each called demo-bot-something', () => {
+  for (const [name, d] of Object.entries(DEPLOYMENTS)) {
+    assert.equal(typeof d.bots, 'object', `${name}: a bots map, empty until deployment`)
+    for (const [account, label] of Object.entries(d.bots)) {
+      assert.match(account, /^[0-9a-f]{64}$/, `${name}: ${account}`)
+      assert.match(label, /^demo-bot-[a-z-]+$/, `${name}: ${label}`)
+      assert.ok(label.length <= 18, 'short enough to stand on the card unshortened')
+    }
+  }
+  assert.equal(Object.keys(DEPLOYMENTS.stage.bots).length, 5, 'the five demo bots of docs/testnet-stage.md')
+})
+
 test('no file holds a local path, a user name, an e-mail address or a private key', () => {
   const bad = [
     /\/Users\/|\/home\/|C:\\\\Users/,
@@ -61,7 +99,9 @@ test('no file holds a local path, a user name, an e-mail address or a private ke
   ]
   for (const f of files(WEB)) {
     if (!/\.(js|mjs|html|css|svg|json|md)$/.test(f)) continue
-    const text = readFileSync(f, 'utf8')
+    let text = readFileSync(f, 'utf8')
+    // the public gas keys are allowed in config.js, and only there
+    if (f === join(WEB, 'js/config.js')) for (const secret of PUBLIC_GAS_SECRETS) text = text.replace(`private_key: '${secret}'`, 'private_key: <public gas key>')
     for (const re of bad) assert.ok(!re.test(text), `${f.slice(WEB.length)} matches ${re}`)
   }
 })

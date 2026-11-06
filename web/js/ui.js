@@ -243,7 +243,7 @@ function compactNumber(v) {
 
 // ---- proof drawer -------------------------------------------------------------------------------
 
-export function proofHtml({ mock, deployment, contract, keys, codeHash, account, gasAccount, rpcHost, txs, explorer, deployed, owed }) {
+export function proofHtml({ mock, deployment, contract, keys, codeHash, expectedHash = null, account, gasAccount, rpcHost, txs, explorer, deployed, owed }) {
   const link = (path, text) => (mock ? `<code>${esc(text)}</code>` : `<a href="${esc(explorer)}/${path}" target="_blank" rel="noopener">${esc(text)}</a>`)
   const keyLine =
     keys == null
@@ -253,6 +253,15 @@ export function proofHtml({ mock, deployment, contract, keys, codeHash, account,
         : keys.length === 0
           ? '<b class="good">0 access keys</b> <span class="muted">· nobody can change the rules</span>'
           : `<b class="bad">${keys.length} access key${keys.length === 1 ? '' : 's'}</b> <span class="muted">· not locked yet</span>`
+  // the hash view_account reports, against the one this page was built for (contract/WASM_SHA256)
+  const hashLine = !codeHash
+    ? `<span class="muted">${keys == null ? 'checking…' : '–'}</span>`
+    : `<code>${esc(codeHash)}</code>${!expectedHash ? '' : codeHash === expectedHash ? ' <span class="good">· matches the build in the repository</span>' : ` <b class="bad">· not the build this page expects (${esc(expectedHash)})</b>`}`
+  const owedLine = !owed
+    ? ''
+    : owed.nights === 0
+      ? '<span>nothing <span class="muted">· every thrower of a settled night has collected</span></span>'
+      : `<span>${esc(owed.amount)} EMBER <span class="muted">to throwers of ${owed.nights} settled night${owed.nights === 1 ? '' : 's'}, until they collect</span></span>`
   const rows = txs.length
     ? txs
         .map(
@@ -267,11 +276,11 @@ export function proofHtml({ mock, deployment, contract, keys, codeHash, account,
     <ul class="proof-list">
       <li><span>Contract</span><span>${link(`address/${contract}`, contract)}${deployment === 'stage' ? ' <span class="muted">(staging)</span>' : ''}</span></li>
       <li><span>Its keys</span><span>${keyLine}</span></li>
-      <li><span>Code hash</span><code>${esc(codeHash ?? '–')}</code></li>
-      <li><span>You</span>${link(`address/${account}`, account)}</li>
+      <li><span>Code hash</span><span>${hashLine}</span></li>
+      <li><span>You</span><span>${link(`address/${account}`, account)}</span></li>
       <li><span>Gas paid by</span><code>${esc(gasAccount)}</code></li>
       <li><span>RPC</span><code>${esc(rpcHost)}</code></li>
-      ${owed ? `<li><span>Owed</span><span>${esc(owed.amount)} EMBER <span class="muted">to throwers of ${owed.nights} settled night${owed.nights === 1 ? '' : 's'}, until they collect</span></span></li>` : ''}
+      ${owed ? `<li><span>Owed</span>${owedLine}</li>` : ''}
     </ul>
     <h3>Your transactions</h3>
     <ul class="tx-list">${rows}</ul>
@@ -297,7 +306,7 @@ export function howHtml(cfg) {
       <li><b>Wood on a cold pile earns most.</b> Wood counts ${fmtFactor(c.early_max_bp)} on an empty pile, falling to ×1 at the target, and ${fmtFactor(c.late_lit_bp)} above it. The night has ${c.pool_windows} ${quarter}s: wood thrown in the same ${quarter} shares its spot in the pile, so being first in a block wins nothing.</li>
       <li><b>Names.</b> The first to throw is the night's <i>Firestarter</i>; the throw that reaches the target is the <i>Last Log</i>.</li>
       <li><b>Collecting.</b> Dawn only records what each thrower is owed. It is credited with your next move, or with one tap; anyone may collect for anyone.</li>
-      <li><b>Kindling.</b> Newcomers get ${amt(c.kindling)} from the hearth, once, ${fmtInt(c.kindling_per_night)} per night.</li>
+      <li><b>Kindling.</b> A newcomer gets ${amt(c.kindling)} from the hearth, once. The hearth pays ${Number(c.kindling_per_night) === 1 ? 'one claim' : `${fmtInt(c.kindling_per_night)} claims`} a night, first come, first served.</li>
       <li><b>No owner, no wallet.</b> Every rule is fixed at launch and the contract account has no keys (open <i>Proof</i> to check). Your browser holds a key for an implicit account and signs your moves; a public gas pool relays them. Clearing site data loses that key.</li>
     </ol>
     <p class="muted fine">Splitting ${sym} over many accounts earns nothing extra: rewards follow wood and its ${quarter}, not accounts. Kindling is the one per-account gift, so it is capped per night and paid from a finite hearth.</p>`

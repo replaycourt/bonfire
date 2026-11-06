@@ -148,24 +148,42 @@ export function unbase64(s) {
 // ---- RPC ----------------------------------------------------------------------------------------
 
 export class Rpc {
-  /** @param {string[]} hosts in order of preference */
-  constructor(hosts, { timeoutMs = 9000, fetchImpl } = {}) {
+  /**
+   * @param {string[]} hosts in order of preference. A host that fails on the network is skipped for
+   * `restMs`; then the first host is used again. (The fallback is for trouble only: the free dRPC
+   * plan, for one, does not wait for transactions.)
+   */
+  constructor(hosts, { timeoutMs = 9000, restMs = 30_000, fetchImpl, now = () => Date.now() } = {}) {
     this.hosts = hosts
-    this.active = 0
     this.timeoutMs = timeoutMs
+    this.restMs = restMs
+    this.now = now
+    this.resting = new Map() // host -> until when it is skipped
     this.fetch = fetchImpl || ((...a) => globalThis.fetch(...a))
     this.onHostChange = null
     this.calls = 0
   }
 
+  /** The first host that is not resting; if all are, the one that rests the shortest. */
   get host() {
-    return this.hosts[this.active]
+    const t = this.now()
+    const ok = this.hosts.find((h) => !(this.resting.get(h) > t))
+    if (ok) return ok
+    return [...this.hosts].sort((a, b) => this.resting.get(a) - this.resting.get(b))[0]
+  }
+
+  /** Lets a host rest after network trouble. Several calls failing at once count as one switch. */
+  rest(host) {
+    if (this.hosts.length < 2) return
+    const before = this.host
+    this.resting.set(host, this.now() + this.restMs)
+    if (this.host !== before) this.onHostChange?.(this.host)
   }
 
   async call(method, params, { retries = 2 } = {}) {
     let lastErr
     for (let attempt = 0; attempt <= retries; attempt++) {
-      const host = this.hosts[this.active]
+      const host = this.host
       try {
         this.calls++
         const r = await this.fetch(host, {
@@ -190,11 +208,8 @@ export class Rpc {
       } catch (e) {
         if (e instanceof RpcError && !e.transient) throw e
         lastErr = e
-        // Network trouble: move to the next host, for the retry and for whoever calls next.
-        if (this.hosts.length > 1) {
-          this.active = (this.active + 1) % this.hosts.length
-          this.onHostChange?.(this.hosts[this.active])
-        }
+        // Network trouble: let this host rest, for the retry and for whoever calls next.
+        this.rest(host)
         if (attempt < retries) await sleep(400 * (attempt + 1))
       }
     }

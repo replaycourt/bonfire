@@ -115,11 +115,13 @@ export const shortAccount = (a) => (a && a.length > 20 ? `${a.slice(0, 6)}…${a
 
 /**
  * A short name for an account on the page: implicit accounts as "a1b2…c3d4", named accounts by
- * their first label ("bot-early-a" for "bot-early-a.bonfire-stage.testnet"), "you" for the player.
+ * their first label ("bot-early-a" for "bot-early-a.bonfire-stage.testnet"), "you" for the player,
+ * and accounts in `labels` (the deployment's demo bots) by their label.
  */
-export function nameOf(account, me) {
+export function nameOf(account, me, labels = {}) {
   if (!account) return ''
   if (account === me) return 'you'
+  if (labels && Object.hasOwn(labels, account)) return labels[account]
   if (/^[0-9a-f]{64}$/.test(account)) return `${account.slice(0, 4)}…${account.slice(-4)}`
   const first = account.split('.')[0]
   return first.length > 18 ? `${first.slice(0, 16)}…` : first
@@ -446,6 +448,32 @@ export function previewFromEstimate(m, est, cfg) {
   return { amount: a, window: k, weight: big(est.weight), factorBp: est.factor_bp, reward, gain: reward > before ? reward - before : 0n }
 }
 
+/**
+ * The hint under the throw buttons, from previewFromEstimate. When the player already holds all of
+ * tonight's weight, more wood cannot grow its share of the mint, so the hint says what it does do.
+ */
+export function throwHint(m, amount, p) {
+  const f = (u) => fmtEmber(u, m.dec)
+  const head = `Throw ${f(amount)} now: it counts ${fmtFactor(p.factorBp)}`
+  if (p.gain > 0n) return `${head}, about +${f(p.gain)} new ${m.symbol} if the fire catches.`
+  if (m.myWeight > 0n && m.myWeight >= m.windows.totalWeight) return `${head}. Tonight's new ${m.symbol} is all yours so far; more wood helps the fire catch.`
+  return `${head}. Too little to change your share of the new ${m.symbol}.`
+}
+
+/** The line beside "Collect": the credit already counts in the balance shown above it. */
+export function readyText(m) {
+  return `from night ${m.readyNight} is already in your balance. Collect it now, or your next throw will.`
+}
+
+/**
+ * Why a newcomer gets no kindling now, in words. Kindling is capped per night, so a newcomer who
+ * comes just after another is told when the next claim opens instead of "come back later".
+ */
+export function kindlingNote(why, msLeft) {
+  if (why === 'gone') return `Tonight’s kindling is handed out. The next claim opens at dawn, in ${fmtCountdown(msLeft)}.`
+  return { dry: 'The hearth has no kindling left.', full: 'The hearth pays for no more new accounts.', claimed: 'You have no free EMBER right now.', holder: 'You have no free EMBER right now.' }[why] ?? ''
+}
+
 /** One headline for the night: what tonight needs, in plain words. */
 export function headline(m) {
   const sym = m.symbol
@@ -501,7 +529,7 @@ export function historyFrom(openNight, count) {
  * A settled night in words, for the banner. `holder` is the player's holder view read after the
  * settle: while its wood is from that night and uncollected, `pending` is what the night owes it.
  */
-export function nightResult(nightView, holder, me, decimals, symbol) {
+export function nightResult(nightView, holder, me, decimals, symbol, labels = {}) {
   if (!nightView) return null
   const f = (u) => fmtEmber(u, decimals)
   const outcome = nightView.outcome
@@ -524,7 +552,7 @@ export function nightResult(nightView, holder, me, decimals, symbol) {
     const credit = big(holder.pending)
     r.mine = { wood, credit, reward: credit > wood ? credit - wood : 0n, lost: wood > credit ? wood - credit : 0n }
   }
-  const names = [r.firestarter && `Firestarter ${nameOf(r.firestarter, me)}`, r.lastLog && `last log ${nameOf(r.lastLog.account, me)} (${f(r.lastLog.amount)})`].filter(Boolean)
+  const names = [r.firestarter && `Firestarter: ${nameOf(r.firestarter, me, labels)}`, r.lastLog && `Last log: ${nameOf(r.lastLog.account, me, labels)} (${f(r.lastLog.amount)})`].filter(Boolean)
   r.names = names.join(' · ')
   if (outcome === 'LIT') {
     r.title = 'The fire caught!'
@@ -544,6 +572,30 @@ export function nightResult(nightView, holder, me, decimals, symbol) {
 }
 
 // ---- people around the fire ---------------------------------------------------------------------
+
+/**
+ * Height of the moon's path as a share of the stage (the scene lifts it by up to 4.5 % of the stage
+ * at midnight): no higher than `base`, and low enough that the moon and its disc (up to about 24 px)
+ * pass under the clock and the rules instead of behind them. `stage` and `text` are DOM rects.
+ */
+export function moonY(base, stage, text) {
+  if (!stage?.height || !text) return base
+  return Math.max(base, (text.bottom - stage.top + 30) / stage.height + 0.045)
+}
+
+/**
+ * Longest random wait before a page settles at dawn, so that open pages do not all send `settle`. A
+ * settle takes a second or two to show in the views; a much shorter spread would keep every page in
+ * the race.
+ */
+export const SETTLE_JITTER_MS = 5000
+export const settleDelay = (random = Math.random) => Math.floor(Math.min(0.999999, Math.max(0, random())) * SETTLE_JITTER_MS)
+
+/**
+ * Settle only while the chain itself says a night is due (another page or a bot may have settled),
+ * and only from a tab someone is looking at: a hidden tab settles when it is shown again, if still due.
+ */
+export const settleNeeded = (state, hidden = false) => !hidden && Number(state?.nights_due ?? 0) > 0
 
 /** A small stable hash of a string, for seeding a silhouette's look. */
 export function hashSeed(s) {
@@ -596,6 +648,28 @@ export function collectCandidates(recent, openNight, me, tried, max) {
     out.push(t.account)
   }
   return out
+}
+
+/**
+ * One round of collecting for other throwers: checks the candidates in order, skips those already
+ * collected (their bots or their own next move did it), and relays at most `max` collections.
+ * Stops at the first error. Returns how many it relayed.
+ */
+export async function helpCollectRound({ candidates, tried, max, pendingOf, collect, onError }) {
+  let done = 0
+  for (const account of candidates) {
+    if (done >= max) break
+    tried.add(account)
+    try {
+      if ((await pendingOf(account)) <= 0n) continue
+      await collect(account)
+      done++
+    } catch (e) {
+      onError?.(account, e)
+      break
+    }
+  }
+  return done
 }
 
 /** Is a metadata icon safe to show in an <img>? Only SVG data URLs. */

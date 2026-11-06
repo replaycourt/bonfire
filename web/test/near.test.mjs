@@ -122,6 +122,51 @@ test('Rpc falls over to the fallback host on network failure', async () => {
   assert.equal(rpc.host, 'https://b')
 })
 
+test('Rpc: calls failing at once switch hosts once, and the first host is used again after its rest', async () => {
+  let t = 1_000_000
+  const seen = []
+  const down = new Set(['https://a'])
+  const fetchImpl = async (host, { body }) => {
+    seen.push(host)
+    if (down.has(host)) throw new TypeError('Failed to fetch')
+    void body
+    return { ok: true, status: 200, json: async () => ({ result: { header: { hash: '11111111111111111111111111111111' } } }) }
+  }
+  const rpc = new N.Rpc(['https://a', 'https://b'], { fetchImpl, restMs: 30_000, now: () => t })
+  const switches = []
+  rpc.onHostChange = (h) => switches.push(h)
+  // three polls in flight when the first host drops: before, each failure flipped the host, so an
+  // odd number of failures could land everyone back on the broken one
+  await Promise.all([rpc.blockHash(), rpc.blockHash(), rpc.blockHash()])
+  assert.deepEqual(switches, ['https://b'])
+  assert.equal(rpc.host, 'https://b')
+  assert.equal(seen.filter((h) => h === 'https://b').length, 3, 'every retry went to the working host')
+  // still resting: calls stay on the fallback
+  t += 29_000
+  await rpc.blockHash()
+  assert.equal(seen.at(-1), 'https://b')
+  // the first host is preferred again once it has rested (it carries the transactions)
+  down.clear()
+  t += 2_000
+  assert.equal(rpc.host, 'https://a')
+  await rpc.blockHash()
+  assert.equal(seen.at(-1), 'https://a')
+})
+
+test('Rpc: an HTTP 408 from a host (dRPC free plan on send_tx) rests that host too', async () => {
+  const seen = []
+  const fetchImpl = async (host) => {
+    seen.push(host)
+    return host === 'https://b' ? { ok: false, status: 408, json: async () => ({ error: { message: 'Request timeout on the free plan', code: 30 } }) } : { ok: true, status: 200, json: async () => ({ result: { header: { hash: '11111111111111111111111111111111' } } }) }
+  }
+  const rpc = new N.Rpc(['https://a', 'https://b'], { fetchImpl })
+  rpc.rest('https://a')
+  assert.equal(rpc.host, 'https://b')
+  await assert.rejects(rpc.sendTx('AAAA'), (e) => e instanceof N.RpcError && e.transient)
+  // both resting now: the one that rests the shortest comes first
+  assert.equal(rpc.host, 'https://a')
+})
+
 test('Rpc view decodes the result bytes; access keys and the account come from queries', async () => {
   const bytes = [...Buffer.from(JSON.stringify({ night: 3 }))]
   const f = fakeRpc({ query: [{ result: { result: bytes } }, { result: { keys: [] } }, { result: { code_hash: 'H' } }] })
