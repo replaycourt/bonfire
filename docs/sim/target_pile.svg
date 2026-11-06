@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="c" width="1000" height="470" viewBox="0 0 1000 470" role="img" aria-labelledby="title desc"><title id="title">Healthy community: target and pile per night</title><desc id="desc">Target as a stepped line, the pile at the end of each night as a marker: filled for a lit night, hollow for a smoky night.</desc><style>
+.c{--bg:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#6f6e69;--grid:#e1e0d9;--axis:#c3c2b7;
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--smoke:#898781}
+@media (prefers-color-scheme: dark){.c{--bg:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#a3a29b;
+--grid:#2c2c2a;--axis:#4a4a46;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--smoke:#a3a29b}
+.b1{fill-opacity:.26}}
+.bg{fill:var(--bg)}
+text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;fill:var(--ink2);font-size:12px}
+.t{fill:var(--ink);font-size:18px;font-weight:600}
+.st{fill:var(--ink2);font-size:13px}
+.ax{fill:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.axt{fill:var(--ink2);font-size:12px}
+.pt{fill:var(--ink);font-size:13px;font-weight:600}
+.val{fill:var(--ink2);font-size:11px;font-variant-numeric:tabular-nums}
+.grid{stroke:var(--grid);stroke-width:1;fill:none}
+.axis{stroke:var(--axis);stroke-width:1;fill:none}
+.ref{stroke:var(--muted);stroke-width:1;fill:none}
+.l1{stroke:var(--s1);stroke-width:2;fill:none;stroke-linejoin:round;stroke-linecap:round}
+.b1{fill:var(--s1);fill-opacity:.14;stroke:none}
+.f1{fill:var(--s1)}.f2{fill:var(--s2)}.f3{fill:var(--s3)}
+.lit{fill:var(--s2);stroke:var(--bg);stroke-width:2}
+.smoke{fill:var(--bg);stroke:var(--smoke);stroke-width:2}
+</style><rect class="bg" width="1000" height="470" rx="8"/><text x="32.0" y="40.0" class="t" text-anchor="start">Healthy community: tonight's target and the pile at the end of the night</text>
+<text x="32.0" y="62.0" class="st" text-anchor="start">Seed 1, launch parameters: lit 48 of 60 nights, longest streak 28 nights, tallest fire 150,916 EMBER.</text>
+<line x1="32" y1="86" x2="54" y2="86" class="l1"/>
+<text x="62.0" y="90.0" class="" text-anchor="start">Target (EMBER the pile needs)</text>
+<circle cx="275" cy="86" r="5" class="lit"/>
+<text x="287.0" y="90.0" class="" text-anchor="start">Pile, lit (pile reached the target)</text>
+<circle cx="530" cy="86" r="4.5" class="smoke"/>
+<text x="542.0" y="90.0" class="" text-anchor="start">Pile, smoke (fell short)</text>
+<line x1="88.0" y1="410.0" x2="960.0" y2="410.0" class="grid"/>
+<text x="80.0" y="414.0" class="ax" text-anchor="end">0</text>
+<line x1="88.0" y1="335.5" x2="960.0" y2="335.5" class="grid"/>
+<text x="80.0" y="339.5" class="ax" text-anchor="end">50k</text>
+<line x1="88.0" y1="261.0" x2="960.0" y2="261.0" class="grid"/>
+<text x="80.0" y="265.0" class="ax" text-anchor="end">100k</text>
+<line x1="88.0" y1="186.5" x2="960.0" y2="186.5" class="grid"/>
+<text x="80.0" y="190.5" class="ax" text-anchor="end">150k</text>
+<line x1="88.0" y1="112.0" x2="960.0" y2="112.0" class="grid"/>
+<text x="80.0" y="116.0" class="ax" text-anchor="end">200k</text>
+<line x1="88.0" y1="410.0" x2="960.0" y2="410.0" class="axis"/>
+<text x="95.3" y="428.0" class="ax" text-anchor="middle">1</text>
+<text x="226.1" y="428.0" class="ax" text-anchor="middle">10</text>
+<text x="371.4" y="428.0" class="ax" text-anchor="middle">20</text>
+<text x="516.7" y="428.0" class="ax" text-anchor="middle">30</text>
+<text x="662.1" y="428.0" class="ax" text-anchor="middle">40</text>
+<text x="807.4" y="428.0" class="ax" text-anchor="middle">50</text>
+<text x="952.7" y="428.0" class="ax" text-anchor="middle">60</text>
+<text x="524.0" y="450.0" class="axt" text-anchor="middle">Night</text>
+<text x="24.0" y="261.0" class="axt" text-anchor="middle" transform="rotate(-90 24 261.0)">EMBER</text>
+<path class="l1" d="M88.0,380.2 L102.5,380.2 L102.5,378.1 L117.1,378.1 L117.1,375.9 L131.6,375.9 L131.6,373.5 L146.1,373.5 L146.1,370.9 L160.7,370.9 L160.7,368.2 L175.2,368.2 L175.2,365.3 L189.7,365.3 L189.7,362.1 L204.3,362.1 L204.3,358.8 L218.8,358.8 L218.8,355.2 L233.3,355.2 L233.3,351.4 L247.9,351.4 L247.9,347.3 L262.4,347.3 L262.4,342.9 L276.9,342.9 L276.9,338.2 L291.5,338.2 L291.5,333.2 L306.0,333.2 L306.0,327.8 L320.5,327.8 L320.5,322.0 L335.1,322.0 L335.1,315.9 L349.6,315.9 L349.6,309.3 L364.1,309.3 L364.1,302.2 L378.7,302.2 L378.7,294.7 L393.2,294.7 L393.2,286.6 L407.7,286.6 L407.7,278.0 L422.3,278.0 L422.3,268.7 L436.8,268.7 L436.8,258.8 L451.3,258.8 L451.3,248.3 L465.9,248.3 L465.9,236.9 L480.4,236.9 L480.4,224.8 L494.9,224.8 L494.9,211.9 L509.5,211.9 L509.5,231.7 L524.0,231.7 L524.0,249.5 L538.5,249.5 L538.5,238.3 L553.1,238.3 L553.1,226.3 L567.6,226.3 L567.6,213.4 L582.1,213.4 L582.1,199.6 L596.7,199.6 L596.7,184.9 L611.2,184.9 L611.2,207.4 L625.7,207.4 L625.7,193.2 L640.3,193.2 L640.3,214.9 L654.8,214.9 L654.8,201.3 L669.3,201.3 L669.3,222.1 L683.9,222.1 L683.9,209.0 L698.4,209.0 L698.4,194.9 L712.9,194.9 L712.9,216.4 L727.5,216.4 L727.5,202.9 L742.0,202.9 L742.0,223.6 L756.5,223.6 L756.5,210.5 L771.1,210.5 L771.1,196.6 L785.6,196.6 L785.6,217.9 L800.1,217.9 L800.1,204.5 L814.7,204.5 L814.7,190.1 L829.2,190.1 L829.2,212.1 L843.7,212.1 L843.7,198.2 L858.3,198.2 L858.3,183.4 L872.8,183.4 L872.8,206.0 L887.3,206.0 L887.3,226.4 L901.9,226.4 L901.9,213.6 L916.4,213.6 L916.4,199.8 L930.9,199.8 L930.9,185.1 L945.5,185.1 L945.5,169.4 L960.0,169.4"/>
+<circle cx="95.3" cy="225.2" r="5" class="lit"><title>night 1: pile 124,027, target 20,000, lit</title></circle>
+<circle cx="109.8" cy="251.9" r="5" class="lit"><title>night 2: pile 106,105, target 21,400, lit</title></circle>
+<circle cx="124.3" cy="230.0" r="5" class="lit"><title>night 3: pile 120,816, target 22,898, lit</title></circle>
+<circle cx="138.9" cy="236.5" r="5" class="lit"><title>night 4: pile 116,427, target 24,501, lit</title></circle>
+<circle cx="153.4" cy="232.9" r="5" class="lit"><title>night 5: pile 118,846, target 26,216, lit</title></circle>
+<circle cx="167.9" cy="229.3" r="5" class="lit"><title>night 6: pile 121,308, target 28,051, lit</title></circle>
+<circle cx="182.5" cy="230.4" r="5" class="lit"><title>night 7: pile 120,528, target 30,015, lit</title></circle>
+<circle cx="197.0" cy="223.7" r="5" class="lit"><title>night 8: pile 125,036, target 32,116, lit</title></circle>
+<circle cx="211.5" cy="220.1" r="5" class="lit"><title>night 9: pile 127,436, target 34,364, lit</title></circle>
+<circle cx="226.1" cy="229.7" r="5" class="lit"><title>night 10: pile 121,036, target 36,769, lit</title></circle>
+<circle cx="240.6" cy="217.5" r="5" class="lit"><title>night 11: pile 129,181, target 39,343, lit</title></circle>
+<circle cx="255.1" cy="229.2" r="5" class="lit"><title>night 12: pile 121,310, target 42,097, lit</title></circle>
+<circle cx="269.7" cy="217.7" r="5" class="lit"><title>night 13: pile 129,088, target 45,044, lit</title></circle>
+<circle cx="284.2" cy="200.6" r="5" class="lit"><title>night 14: pile 140,554, target 48,197, lit</title></circle>
+<circle cx="298.7" cy="199.9" r="5" class="lit"><title>night 15: pile 140,992, target 51,571, lit</title></circle>
+<circle cx="313.3" cy="240.6" r="5" class="lit"><title>night 16: pile 113,688, target 55,181, lit</title></circle>
+<circle cx="327.8" cy="237.5" r="5" class="lit"><title>night 17: pile 115,780, target 59,043, lit</title></circle>
+<circle cx="342.3" cy="191.9" r="5" class="lit"><title>night 18: pile 146,363, target 63,176, lit</title></circle>
+<circle cx="356.9" cy="235.4" r="5" class="lit"><title>night 19: pile 117,182, target 67,599, lit</title></circle>
+<circle cx="371.4" cy="185.9" r="5" class="lit"><title>night 20: pile 150,381, target 72,331, lit</title></circle>
+<circle cx="385.9" cy="208.5" r="5" class="lit"><title>night 21: pile 135,222, target 77,394, lit</title></circle>
+<circle cx="400.5" cy="214.2" r="5" class="lit"><title>night 22: pile 131,394, target 82,811, lit</title></circle>
+<circle cx="415.0" cy="198.5" r="5" class="lit"><title>night 23: pile 141,931, target 88,608, lit</title></circle>
+<circle cx="429.5" cy="211.5" r="5" class="lit"><title>night 24: pile 133,230, target 94,811, lit</title></circle>
+<circle cx="444.1" cy="201.5" r="5" class="lit"><title>night 25: pile 139,963, target 101,447, lit</title></circle>
+<circle cx="458.6" cy="217.6" r="5" class="lit"><title>night 26: pile 129,127, target 108,549, lit</title></circle>
+<circle cx="473.1" cy="195.4" r="5" class="lit"><title>night 27: pile 144,020, target 116,147, lit</title></circle>
+<circle cx="487.7" cy="206.1" r="5" class="lit"><title>night 28: pile 136,840, target 124,277, lit</title></circle>
+<circle cx="502.2" cy="224.3" r="4.5" class="smoke"><title>night 29: pile 124,606, target 132,977, smoke</title></circle>
+<circle cx="516.7" cy="304.8" r="4.5" class="smoke"><title>night 30: pile 70,591, target 119,679, smoke</title></circle>
+<circle cx="531.3" cy="209.0" r="5" class="lit"><title>night 31: pile 134,870, target 107,711, lit</title></circle>
+<circle cx="545.8" cy="230.4" r="5" class="lit"><title>night 32: pile 120,553, target 115,251, lit</title></circle>
+<circle cx="560.3" cy="197.1" r="5" class="lit"><title>night 33: pile 142,890, target 123,319, lit</title></circle>
+<circle cx="574.9" cy="185.3" r="5" class="lit"><title>night 34: pile 150,825, target 131,951, lit</title></circle>
+<circle cx="589.4" cy="180.7" r="5" class="lit"><title>night 35: pile 153,870, target 141,187, lit</title></circle>
+<circle cx="603.9" cy="211.8" r="4.5" class="smoke"><title>night 36: pile 133,027, target 151,071, smoke</title></circle>
+<circle cx="618.5" cy="164.2" r="5" class="lit"><title>night 37: pile 164,968, target 135,963, lit</title></circle>
+<circle cx="633.0" cy="204.0" r="4.5" class="smoke"><title>night 38: pile 138,278, target 145,481, smoke</title></circle>
+<circle cx="647.5" cy="171.8" r="5" class="lit"><title>night 39: pile 159,878, target 130,933, lit</title></circle>
+<circle cx="662.1" cy="286.0" r="4.5" class="smoke"><title>night 40: pile 83,219, target 140,098, smoke</title></circle>
+<circle cx="676.6" cy="161.5" r="5" class="lit"><title>night 41: pile 166,750, target 126,088, lit</title></circle>
+<circle cx="691.1" cy="172.0" r="5" class="lit"><title>night 42: pile 159,714, target 134,914, lit</title></circle>
+<circle cx="705.7" cy="219.6" r="4.5" class="smoke"><title>night 43: pile 127,784, target 144,358, smoke</title></circle>
+<circle cx="720.2" cy="196.4" r="5" class="lit"><title>night 44: pile 143,354, target 129,923, lit</title></circle>
+<circle cx="734.7" cy="291.4" r="4.5" class="smoke"><title>night 45: pile 79,574, target 139,017, smoke</title></circle>
+<circle cx="749.3" cy="193.4" r="5" class="lit"><title>night 46: pile 145,403, target 125,115, lit</title></circle>
+<circle cx="763.8" cy="190.2" r="5" class="lit"><title>night 47: pile 147,524, target 133,874, lit</title></circle>
+<circle cx="778.3" cy="203.5" r="4.5" class="smoke"><title>night 48: pile 138,560, target 143,245, smoke</title></circle>
+<circle cx="792.9" cy="172.6" r="5" class="lit"><title>night 49: pile 159,320, target 128,920, lit</title></circle>
+<circle cx="807.4" cy="147.6" r="5" class="lit"><title>night 50: pile 176,098, target 137,945, lit</title></circle>
+<circle cx="821.9" cy="228.3" r="4.5" class="smoke"><title>night 51: pile 121,943, target 147,601, smoke</title></circle>
+<circle cx="836.5" cy="181.6" r="5" class="lit"><title>night 52: pile 153,283, target 132,841, lit</title></circle>
+<circle cx="851.0" cy="162.5" r="5" class="lit"><title>night 53: pile 166,087, target 142,140, lit</title></circle>
+<circle cx="865.5" cy="210.3" r="4.5" class="smoke"><title>night 54: pile 134,005, target 152,089, smoke</title></circle>
+<circle cx="880.1" cy="243.9" r="4.5" class="smoke"><title>night 55: pile 111,453, target 136,880, smoke</title></circle>
+<circle cx="894.6" cy="194.7" r="5" class="lit"><title>night 56: pile 144,526, target 123,192, lit</title></circle>
+<circle cx="909.1" cy="175.1" r="5" class="lit"><title>night 57: pile 157,681, target 131,816, lit</title></circle>
+<circle cx="923.7" cy="156.3" r="5" class="lit"><title>night 58: pile 170,284, target 141,043, lit</title></circle>
+<circle cx="938.2" cy="151.5" r="5" class="lit"><title>night 59: pile 173,522, target 150,916, lit</title></circle>
+<circle cx="952.7" cy="205.1" r="4.5" class="smoke"><title>night 60: pile 137,485, target 161,480, smoke</title></circle></svg>

@@ -1,0 +1,117 @@
+{
+  "about": "Launch parameters picked by sim/bonfire_sim.py; reasons and evidence in docs/SIMULATION.md. Field names and units are those of the contract's Config (contract/src/config.rs).",
+  "units": "Amounts are base units (10^decimals per EMBER) as decimal strings. Fields ending in _bp are basis points: 10,000 bp = 100 % = a factor of 1.0. night_ms is milliseconds.",
+  "notes": [
+    "target_cap_bp is new: target_next = min(rule result, (supply - hearth - pile) * target_cap_bp / 10,000), never below target_min.",
+    "max_throwers_per_night is gone: the contract pays throwers lazily (pull payments).",
+    "early_max_bp is the weight factor of wood on an empty pile; it falls linearly to 1.0 at the target (weighting by pile position).",
+    "pool_windows is new: the night is cut into this many equal windows, and all wood that lands in one window shares, pro rata, the slice of the pile that window's wood covers (see docs/SIMULATION.md)."
+  ],
+  "simulation": {
+    "config": {
+      "name": "Bonfire",
+      "symbol": "EMBER",
+      "decimals": 18,
+      "night_ms": 86400000,
+      "hearth_genesis": "400000000000000000000000",
+      "target_start": "20000000000000000000000",
+      "target_min": "5000000000000000000000",
+      "grow_bp": 700,
+      "shrink_bp": 1000,
+      "mint_bp": 400,
+      "hearth_cut_bp": 1000,
+      "smoke_bp": 300,
+      "hearth_burn_bp": 25,
+      "early_max_bp": 40000,
+      "late_lit_bp": 2500,
+      "pool_windows": 4,
+      "target_cap_bp": 2500,
+      "min_throw": "50000000000000000000",
+      "kindling": "250000000000000000000",
+      "kindling_per_night": 10,
+      "max_catchup": 30,
+      "log_keep": 14,
+      "max_accounts": 1664,
+      "history_keep": 1024
+    },
+    "founders_total": "600000000000000000000000",
+    "founders_note": "The simulation spreads founders_total over its simulated community. The real init call lists at most 64 founders."
+  },
+  "testnet": {
+    "config": {
+      "name": "Bonfire",
+      "symbol": "EMBER",
+      "decimals": 18,
+      "night_ms": 300000,
+      "hearth_genesis": "900000000000000000000000",
+      "target_start": "400000000000000000000",
+      "target_min": "100000000000000000000",
+      "grow_bp": 700,
+      "shrink_bp": 1000,
+      "mint_bp": 400,
+      "hearth_cut_bp": 1000,
+      "smoke_bp": 300,
+      "hearth_burn_bp": 25,
+      "early_max_bp": 40000,
+      "late_lit_bp": 2500,
+      "pool_windows": 4,
+      "target_cap_bp": 2500,
+      "min_throw": "1000000000000000000",
+      "kindling": "200000000000000000000",
+      "kindling_per_night": 1,
+      "max_catchup": 30,
+      "log_keep": 48,
+      "max_accounts": 4505,
+      "history_keep": 4096
+    },
+    "founders": [
+      {
+        "account_id": "REPLACE-WITH-ACCOUNT-ID:demo-bot-early-a",
+        "amount": "40000000000000000000000"
+      },
+      {
+        "account_id": "REPLACE-WITH-ACCOUNT-ID:demo-bot-early-b",
+        "amount": "30000000000000000000000"
+      },
+      {
+        "account_id": "REPLACE-WITH-ACCOUNT-ID:demo-bot-steady",
+        "amount": "15000000000000000000000"
+      },
+      {
+        "account_id": "REPLACE-WITH-ACCOUNT-ID:demo-bot-late",
+        "amount": "5000000000000000000000"
+      },
+      {
+        "account_id": "REPLACE-WITH-ACCOUNT-ID:demo-bot-idle",
+        "amount": "10000000000000000000000"
+      }
+    ],
+    "demo_bots": [
+      {
+        "label": "demo-bot-early-a",
+        "behaviour": "early: on 90 % of nights, in the first fifth of the night, throws about 200 EMBER (plus or minus 25 %)",
+        "throw": "200000000000000000000"
+      },
+      {
+        "label": "demo-bot-early-b",
+        "behaviour": "early: on 90 % of nights, in the first fifth of the night, throws about 150 EMBER (plus or minus 25 %)",
+        "throw": "150000000000000000000"
+      },
+      {
+        "label": "demo-bot-steady",
+        "behaviour": "fair-weather: on 85 % of nights, between 40 % and 80 % of the night, throws about 150 EMBER if the streak is at least 2 or the pile is at 60 % of the target",
+        "throw": "150000000000000000000"
+      },
+      {
+        "label": "demo-bot-late",
+        "behaviour": "sniper: on 90 % of nights, in the last tenth: if the pile is at 80 % of the target and 100 EMBER close the gap, throws exactly the gap (or 100 EMBER when late_lit > 0); otherwise does nothing",
+        "throw": "100000000000000000000"
+      },
+      {
+        "label": "demo-bot-idle",
+        "behaviour": "free rider: never throws",
+        "throw": "0"
+      }
+    ]
+  }
+}
