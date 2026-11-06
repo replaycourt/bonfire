@@ -1,0 +1,12 @@
+target/
+.secrets/
+node_modules/
+*.log
+.DS_Store
+work/
+frames/
+takes/
+stills/
+check/
+*.wav
+*.mp4

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://test.rpc.fastnear.com https://near-testnet.drpc.org; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<title>Bonfire · EMBER</title>
+<meta name="description" content="A memecoin whose holders build a bonfire together every night. Throw EMBER on the pile before dawn: enough wood and everyone gets it back plus new EMBER; too little and some of it goes up in smoke.">
+<meta name="theme-color" content="#07060d">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Bonfire · EMBER">
+<meta property="og:description" content="Throw wood before dawn. Enough wood: everyone gets it back plus new EMBER. Too little: some of it goes up in smoke.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="mock-badge" class="mock-badge" hidden>Mock data · nothing here is on chain</div>
+
+<header class="top">
+  <a class="brand" href="./" aria-label="Bonfire home">
+    <img id="coin-mini" class="coin-mini" src="favicon.svg" alt="">
+    <span class="word">Bonfire</span><span class="ticker">EMBER</span>
+  </a>
+  <nav class="top-actions" aria-label="Page">
+    <button id="btn-how" class="ghost" type="button">How it works</button>
+    <button id="btn-sound" class="icon-btn" type="button" aria-pressed="false" aria-label="Sound is off"><span class="ico ico-sound off" aria-hidden="true"></span></button>
+    <button id="btn-proof" class="ghost proof-btn" type="button"><span class="ico ico-proof" aria-hidden="true"></span><span>Proof</span></button>
+  </nav>
+</header>
+
+<main>
+  <section class="hero" id="hero">
+    <div class="stage" id="stage">
+      <canvas id="scene" role="img" aria-label="A bonfire at night"></canvas>
+      <div class="sky-text">
+        <div class="clock" id="clock" aria-live="off">
+          <span class="night-label" id="night-label">Night</span>
+          <b class="countdown" id="countdown">–:––</b>
+          <span class="until" id="until">until dawn</span>
+        </div>
+        <p class="rules"><b>Throw wood before dawn.</b> <span>Enough wood: everyone gets their wood back plus new EMBER.</span> <span>Too little: some of it goes up in smoke.</span> <span>Early wood earns more.</span></p>
+      </div>
+      <div id="banner" class="banner" role="status" hidden>
+        <span class="banner-kicker" id="banner-kicker"></span>
+        <b class="banner-title" id="banner-title"></b>
+        <span class="banner-text" id="banner-text"></span>
+      </div>
+      <div class="strip-row">
+        <span class="strip-label">Last nights</span>
+        <ol class="strip" id="strip" aria-label="The last nights, oldest first"></ol>
+      </div>
+    </div>
+
+    <aside class="card tonight" id="tonight" aria-labelledby="tonight-title">
+      <h2 class="card-title" id="tonight-title">Tonight</h2>
+      <div class="need">
+        <b id="need-big">–</b>
+        <span id="need-small">of wood needed before dawn</span>
+      </div>
+      <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Pile against tonight's target">
+        <div class="meter-fill" id="meter-fill"></div>
+        <div class="meter-goal"></div>
+      </div>
+      <div class="meter-legend"><span><b id="pile-num">0</b> on the pile</span><span>target <b id="target-num">–</b></span></div>
+      <dl class="facts">
+        <div><dt>Early bonus now</dt><dd id="early">–</dd></div>
+        <div><dt>Throwers</dt><dd id="throwers">–</dd></div>
+        <div><dt>Streak</dt><dd id="streak">–</dd></div>
+        <div><dt>Hearth</dt><dd id="hearth">–</dd></div>
+      </dl>
+      <p class="fine" id="kindling-left"></p>
+    </aside>
+
+    <aside class="card you" id="you" aria-labelledby="you-title">
+      <h2 class="card-title" id="you-title">Your wood</h2>
+      <div class="balance"><span class="label">Your EMBER</span><b id="balance">–</b></div>
+      <button id="btn-kindle" class="kindle" type="button" hidden>
+        <span class="btn-title">Get kindling</span>
+        <span class="btn-sub" id="kindle-sub">free EMBER from the hearth, once</span>
+      </button>
+      <div class="throw-row" id="throw-row" role="group" aria-label="Throw wood"></div>
+      <p class="throw-hint" id="throw-hint"></p>
+      <div class="mine" id="mine">
+        <div><span>Your wood tonight</span><b id="my-wood">0</b></div>
+        <div><span>If it catches</span><b id="my-share">–</b></div>
+      </div>
+      <p class="note" id="note" hidden></p>
+      <p class="status" id="status" aria-live="polite"></p>
+    </aside>
+  </section>
+
+  <section class="story" id="story" aria-label="The story so far">
+    <div class="card chart-card">
+      <div class="card-head"><h2>Supply</h2><span class="sub">EMBER in existence after each night</span></div>
+      <div class="chart" id="chart"></div>
+    </div>
+    <div class="side-cards">
+      <div class="card records">
+        <h2>Records</h2>
+        <div class="tiles">
+          <div class="tile"><span>Longest streak</span><b id="rec-streak">–</b></div>
+          <div class="tile"><span>Tallest fire</span><b id="rec-tallest">–</b></div>
+          <div class="tile"><span>Minted</span><b id="rec-minted">–</b></div>
+          <div class="tile"><span>Burned</span><b id="rec-burned">–</b></div>
+        </div>
+        <p class="tally" id="tally"></p>
+      </div>
+      <div class="card face">
+        <img id="coin-face" class="coin-face" src="favicon.svg" alt="The EMBER icon">
+        <div>
+          <h2>The coin's face</h2>
+          <p>The contract draws it from last night's fire, with the streak underneath. Every wallet that lists EMBER shows it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="how" id="how-section">
+    <details id="how">
+      <summary>How it works</summary>
+      <div id="how-body"><p class="muted">Reading the rules from the contract…</p></div>
+    </details>
+  </section>
+
+  <footer class="foot">
+    <span>Bonfire is an entry for the NEAR hackathon, track <i>Memecoins with mechanics</i>. Testnet only; EMBER has no value.</span>
+  </footer>
+</main>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+<aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
+  <div class="drawer-head"><h2 id="drawer-title">Proof</h2><button class="close" id="drawer-close" type="button" aria-label="Close">×</button></div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
