@@ -71,10 +71,10 @@ echo "privacy check: no /Users/, /home/ or user name in $(basename "$WASM")" >&2
 
 # Surface check: the wasm's function exports are exactly these methods (`__contract_abi` is the
 # read-only ABI that cargo-near embeds).
-EXPECTED="__contract_abi act audit claim_kindling config contract_source_metadata ft_balance_of ft_metadata \
-ft_resolve_transfer ft_total_supply ft_transfer ft_transfer_call history holder new night records \
-settle signing_text state storage_balance_bounds storage_balance_of storage_deposit \
-storage_unregister storage_withdraw throw_wood"
+EXPECTED="__contract_abi act audit claim_kindling collect config contract_source_metadata estimate \
+ft_balance_of ft_metadata ft_resolve_transfer ft_total_supply ft_transfer ft_transfer_call history holder \
+new night recent_throws records settle signing_text state storage_balance_bounds storage_balance_of \
+storage_deposit storage_unregister storage_withdraw throw_wood"
 python3 -I - "$WASM" "$EXPECTED" <<'PY' >&2
 import sys
 

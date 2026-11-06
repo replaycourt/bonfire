@@ -35,7 +35,7 @@ pub fn founder(i: u32) -> AccountId {
     acc(&format!("founder{i}.testnet"))
 }
 
-/// DESIGN.md's first guesses, in whole EMBER (decimals 0), with small caps for the tests.
+/// The launch values of sim/params.json in whole EMBER (decimals 0), with small caps for the tests.
 pub fn cfg() -> Config {
     Config {
         name: "Bonfire Ember".into(),
@@ -45,21 +45,22 @@ pub fn cfg() -> Config {
         hearth_genesis: U128(400_000),
         target_start: U128(20_000),
         target_min: U128(5_000),
-        grow_bp: 500,
+        grow_bp: 700,
         shrink_bp: 1_000,
-        mint_bp: 500,
-        hearth_cut_bp: 2_000,
-        smoke_bp: 1_000,
-        hearth_burn_bp: 100,
-        early_max_bp: 15_000,
-        late_lit_bp: 5_000,
-        min_throw: U128(1),
-        kindling: U128(500),
-        kindling_per_night: 20,
-        max_throwers_per_night: 50,
-        max_accounts: 1_000,
+        mint_bp: 400,
+        hearth_cut_bp: 1_000,
+        smoke_bp: 300,
+        hearth_burn_bp: 25,
+        early_max_bp: 40_000,
+        late_lit_bp: 2_500,
+        pool_windows: 4,
+        target_cap_bp: 2_500,
+        min_throw: U128(50),
+        kindling: U128(250),
+        kindling_per_night: 10,
         max_catchup: 30,
         log_keep: 14,
+        max_accounts: 1_000,
         history_keep: 4_096,
     }
 }
@@ -145,11 +146,11 @@ impl Game {
         context(START_MS, &contract_id(), 0);
         let c = Bonfire::new(config, founders);
         let mut g = Self { c, now_ms: START_MS, logs: Vec::new(), last_logs: Vec::new() };
-        g.collect();
+        g.gather_logs();
         g
     }
 
-    fn collect(&mut self) {
+    fn gather_logs(&mut self) {
         self.last_logs = near_sdk::test_utils::get_logs();
         self.logs.extend(self.last_logs.iter().cloned());
     }
@@ -158,7 +159,7 @@ impl Game {
     pub fn call<R>(&mut self, who: &AccountId, deposit: u128, f: impl FnOnce(&mut Bonfire) -> R) -> R {
         context(self.now_ms, who, deposit);
         let r = f(&mut self.c);
-        self.collect();
+        self.gather_logs();
         r
     }
 
@@ -197,8 +198,22 @@ impl Game {
         self.call(&acc("anyone.testnet"), 0, |c| c.settle())
     }
 
+    /// A wallet throw for the clock's night.
     pub fn throw(&mut self, who: &AccountId, amount: u128) -> ThrowOutcome {
-        self.call(who, ONE_YOCTO, |c| c.throw_wood(U128(amount), None))
+        let n = self.clock();
+        self.call(who, ONE_YOCTO, |c| c.throw_wood(U128(amount), n))
+    }
+
+    /// Anyone collects for `who`; returns the amount.
+    pub fn collect(&mut self, who: &AccountId) -> u128 {
+        let who = who.clone();
+        self.call(&acc("collector.testnet"), 0, |c| c.collect(who)).amount.0
+    }
+
+    pub fn collect_all(&mut self, accounts: &[AccountId]) {
+        for a in accounts {
+            self.collect(a);
+        }
     }
 
     pub fn kindle(&mut self, who: &AccountId) -> KindlingOutcome {
@@ -238,6 +253,11 @@ impl Game {
     pub fn act_kindle(&mut self, key: &mut Key) -> ActOutcome {
         let n = self.clock();
         self.act(key, &format!(r#"{{"claim_kindling":{{"night":{n}}}}}"#))
+    }
+
+    pub fn act_collect(&mut self, key: &mut Key) -> ActOutcome {
+        let n = self.clock();
+        self.act(key, &format!(r#"{{"collect":{{"night":{n}}}}}"#))
     }
 
     pub fn act_transfer(&mut self, key: &mut Key, to: &AccountId, amount: u128) -> ActOutcome {
@@ -281,15 +301,27 @@ impl Game {
         self.view(|c| c.audit())
     }
 
-    /// supply == free balances + pile + hearth, recomputed from `accounts` (which must be every
-    /// account that ever held EMBER), and every audit flag holds.
+    /// supply == credited balances + pile + hearth + owed, with the credited balances summed over
+    /// `accounts` (which must be every account that ever held EMBER), every audit flag holding,
+    /// and the uncollected credit of those accounts adding up to what is owed, short only of
+    /// rounding dust.
     pub fn assert_conserved(&mut self, accounts: &[AccountId]) {
         let a = self.audit();
         assert!(a.balanced, "audit unbalanced: {a:?}");
         assert!(a.ledger, "supply != genesis + minted - burned: {a:?}");
-        let free: u128 = accounts.iter().map(|x| self.balance(x)).sum();
-        assert_eq!(free, a.balances.0, "tracked balances differ from the sum over accounts");
-        assert_eq!(free + a.pile.0 + a.hearth.0, a.supply.0, "EMBER appeared or vanished");
+        let (mut credited, mut pending) = (0, 0);
+        for x in accounts {
+            let h = self.holder(x);
+            assert_eq!(h.balance.0, h.credited.0 + h.pending.0);
+            assert_eq!(self.balance(x), h.balance.0, "ft_balance_of counts the pending credit");
+            credited += h.credited.0;
+            pending += h.pending.0;
+        }
+        assert_eq!(credited, a.balances.0, "tracked balances differ from the sum over accounts");
+        assert_eq!(credited + a.pile.0 + a.hearth.0 + a.owed.0, a.supply.0, "EMBER appeared or vanished");
+        assert!(pending <= a.owed.0, "more pending than owed");
+        let nights = self.state().owed_nights as u128;
+        assert!(a.owed.0 - pending <= nights * accounts.len() as u128, "owed beyond rounding dust: {a:?}");
         assert_eq!(self.balance(&contract_id()), a.pile.0 + a.hearth.0);
     }
 
@@ -315,16 +347,19 @@ impl Game {
         m
     }
 
-    /// Every account's balance equals what the event log says, and no balance ever went negative
-    /// in the replay's final state.
+    /// The events rebuild every credited balance; the contract's replayed balance is the pile, the
+    /// hearth and what settled nights still owe; once everyone has collected, the replay equals
+    /// `ft_balance_of` for every account.
     pub fn assert_events_match(&mut self) {
         let replay = self.replayed();
         let total: i128 = replay.values().sum();
         assert_eq!(total as u128, self.supply(), "events do not add up to the supply");
+        let a = self.audit();
         for (who, v) in replay {
             assert!(v >= 0, "{who} went negative in the event replay");
-            let on_chain = self.balance(&acc(&who));
-            assert_eq!(v as u128, on_chain, "event replay of {who} differs from ft_balance_of");
+            let expected =
+                if who == CONTRACT { a.pile.0 + a.hearth.0 + a.owed.0 } else { self.holder(&acc(&who)).credited.0 };
+            assert_eq!(v as u128, expected, "event replay of {who} differs from its credited balance");
         }
     }
 

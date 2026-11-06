@@ -3,8 +3,10 @@
 //! interfaces of near-contract-standards.
 //!
 //! Differences from the plain standard implementation, all on purpose:
+//! - an account's balance includes what a settled night owes it and it has not collected yet;
+//!   every transfer collects the sender's credit first;
 //! - the contract account's balance is the pile plus the hearth; plain transfers to it are refused,
-//!   and `ft_transfer_call` to it with msg `"throw"` throws the wood in the same call;
+//!   and `ft_transfer_call` to it with msg `"throw:<night>"` throws the wood in the same call;
 //! - an account whose storage the contract paid (a founder or a kindling claimer), and an account
 //!   that took kindling, cannot unregister, so nobody can withdraw NEAR the contract staked and
 //!   the once-only kindling rule holds;
@@ -27,7 +29,7 @@ use near_sdk::{
 
 const GAS_FOR_RESOLVE_TRANSFER: Gas = Gas::from_tgas(5);
 /// The `msg` of an `ft_transfer_call` to the contract that throws the amount on tonight's pile.
-pub const THROW_MSG: &str = "throw";
+pub const THROW_MSG: &str = "throw:";
 
 #[near]
 impl FungibleTokenCore for Bonfire {
@@ -36,13 +38,15 @@ impl FungibleTokenCore for Bonfire {
         assert_one_yocto();
         let sender = env::predecessor_account_id();
         let mut logs = Logs::new();
+        self.credit(&sender, &mut logs);
         self.do_transfer(&sender, &receiver_id, amount.0, memo.as_deref(), &mut logs)
             .unwrap_or_else(|e| env::panic_str(&e));
         logs.emit();
     }
 
     /// To another account: the standard transfer and `ft_on_transfer` call. To the contract itself
-    /// with msg `"throw"`: throws the amount on tonight's pile right away and returns it as used.
+    /// with msg `"throw:<night>"`: throws the amount on tonight's pile right away and returns it as
+    /// used; `<night>` must be tonight's number, as in `act` and `throw_wood`.
     #[payable]
     fn ft_transfer_call(
         &mut self,
@@ -55,12 +59,17 @@ impl FungibleTokenCore for Bonfire {
         let sender = env::predecessor_account_id();
         let mut logs = Logs::new();
         if receiver_id == env::current_account_id() {
-            require!(msg == THROW_MSG, "the bonfire takes EMBER only as wood: send it with msg \"throw\"");
+            let night: u32 = msg.strip_prefix(THROW_MSG).and_then(|n| n.parse().ok()).unwrap_or_else(|| {
+                env::panic_str("the bonfire takes EMBER only as wood: send it with msg \"throw:<night>\"")
+            });
             self.catch_up(&mut logs);
+            self.credit(&sender, &mut logs);
+            self.check_night(night).unwrap_or_else(|e| env::panic_str(&e));
             self.do_throw(&sender, amount.0, &mut logs).unwrap_or_else(|e| env::panic_str(&e));
             logs.emit();
             return PromiseOrValue::Value(amount);
         }
+        self.credit(&sender, &mut logs);
         self.do_transfer(&sender, &receiver_id, amount.0, memo.as_deref(), &mut logs)
             .unwrap_or_else(|e| env::panic_str(&e));
         logs.emit();
@@ -80,12 +89,13 @@ impl FungibleTokenCore for Bonfire {
         U128(self.supply)
     }
 
-    /// Free EMBER of an account. The contract account's balance is the pile plus the hearth.
+    /// Free EMBER of an account: its credited balance plus what a settled night owes it. The
+    /// contract account's balance is the pile plus the hearth.
     fn ft_balance_of(&self, account_id: AccountId) -> U128 {
         if account_id == env::current_account_id() {
             return U128(self.pile + self.hearth);
         }
-        U128(self.holders.get(&account_id).map_or(0, |h| h.balance))
+        U128(self.holders.get(&account_id).map_or(0, |h| h.balance + self.pending_credit(h)))
     }
 }
 
@@ -169,19 +179,23 @@ impl StorageManagement for Bonfire {
     }
 
     /// Removes the caller's record and refunds its storage deposit. Accounts whose storage the
-    /// contract paid and accounts that took kindling cannot unregister; wood on tonight's pile
-    /// must be settled first; a positive balance needs `force` and burns.
+    /// contract paid and accounts that took kindling cannot unregister; what a settled night owes
+    /// the account is collected first; wood on the burning night must be settled first; a positive
+    /// balance needs `force` and burns.
     #[payable]
     fn storage_unregister(&mut self, force: Option<bool>) -> bool {
         assert_one_yocto();
         let who = env::predecessor_account_id();
+        let mut logs = Logs::new();
+        self.credit(&who, &mut logs);
+        logs.emit();
         let Some(h) = self.holders.get(&who).cloned() else {
             log!("The account {} is not registered", who);
             return false;
         };
         require!(h.flags & SPONSORED == 0, "the contract paid this account's storage, so it stays registered");
         require!(h.flags & KINDLED == 0, "an account that took kindling stays registered");
-        require!(h.wood == 0, "this account has wood on tonight's fire; unregister once the night is settled");
+        require!(h.pending.is_none(), "this account has wood on tonight's fire; unregister once the night is settled");
         if h.balance > 0 && !force.unwrap_or(false) {
             env::panic_str("Can't unregister the account with the positive balance without force");
         }
@@ -230,6 +244,14 @@ impl Bonfire {
         env::storage_byte_cost().saturating_mul(self.account_bytes as u128)
     }
 
+    /// What a settled night owes this holder and it has not collected yet.
+    pub(crate) fn pending_credit(&self, h: &Holder) -> u128 {
+        match &h.pending {
+            Some(p) if p.night < self.night => self.owed_by_night.get(&p.night).map_or(0, |o| Self::credit_of(o, p)),
+            _ => 0,
+        }
+    }
+
     /// Moves free EMBER between two registered accounts.
     pub(crate) fn do_transfer(
         &mut self,
@@ -254,7 +276,8 @@ impl Bonfire {
             return Err(format!("The account {from} is not registered"));
         };
         if f.balance < amount {
-            return Err(if f.balance + f.wood >= amount {
+            let wood = f.pending.as_ref().map_or(0, |p| p.total());
+            return Err(if f.balance + wood >= amount {
                 "The account doesn't have enough balance: part of it is wood on tonight's fire".into()
             } else {
                 "The account doesn't have enough balance".into()

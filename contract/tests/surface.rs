@@ -16,8 +16,9 @@ const SOURCES: [(&str, &str); 9] = [
     ("math.rs", include_str!("../src/math.rs")),
 ];
 
-const CHANGING: [&str; 10] = [
+const CHANGING: [&str; 11] = [
     "act",
+    "collect",
     "throw_wood",
     "claim_kindling",
     "settle",
@@ -29,7 +30,7 @@ const CHANGING: [&str; 10] = [
     "storage_unregister",
 ];
 
-const VIEWS: [&str; 13] = [
+const VIEWS: [&str; 15] = [
     "ft_total_supply",
     "ft_balance_of",
     "ft_metadata",
@@ -43,6 +44,8 @@ const VIEWS: [&str; 13] = [
     "holder",
     "audit",
     "signing_text",
+    "estimate",
+    "recent_throws",
 ];
 
 struct Method {

@@ -6,80 +6,102 @@ use bonfire::Bonfire;
 use common::*;
 use near_sdk::env;
 
-/// README: one account record (64-character account id).
-const ACCOUNT: u64 = 166;
-/// README: one seat in tonight's thrower list (64-character account id).
-const SEAT: u64 = 113;
-/// README: one night log, plus at most this much per thrower in it.
-const NIGHT_LOG: u64 = 218;
-const NIGHT_LOG_PER_THROWER: u64 = 116;
-/// README: one history bucket of 32 nights.
-const HISTORY_BUCKET_BYTES: u64 = 2_257;
+/// README: the largest account record (64-character id, wood in all 4 windows).
+const ACCOUNT_MAX: u64 = 211;
+/// README: an account record without wood.
+const ACCOUNT_BARE: u64 = 135;
+/// README: a night log (at most), the record a night with wood keeps until its last thrower
+/// collects (at most), one history row, one new history bucket with its first row.
+const NIGHT_LOG_MAX: u64 = 472;
+const NIGHT_LOG_COLD: u64 = 192;
+const OWED_MAX: u64 = 246;
+const HISTORY_ROW: u64 = 69;
+const HISTORY_NEW_BUCKET: u64 = 118;
 
 /// Bytes `f` adds to storage, flushed inside the same call.
-fn growth(g: &mut Game, who: &str, f: impl FnOnce(&mut Bonfire)) -> u64 {
+fn growth(g: &mut Game, who: &str, f: impl FnOnce(&mut Bonfire)) -> i64 {
     g.call(&acc(who), 0, |c| {
         // Unit tests never drop the contract, so earlier calls may still have cached writes.
         c.flush();
-        let before = env::storage_usage();
+        let before = env::storage_usage() as i64;
         f(c);
         c.flush();
-        env::storage_usage() - before
+        env::storage_usage() as i64 - before
     })
 }
 
 #[test]
-fn an_account_record_is_what_storage_deposit_charges() {
+fn an_account_record_never_outgrows_what_registration_charges() {
     let mut g = Game::new();
-    assert_eq!(g.view(|c| c.config()).account_storage_bytes, ACCOUNT);
-    let k = Key::new(1);
+    assert_eq!(g.view(|c| c.config()).account_storage_bytes, ACCOUNT_MAX);
+    let mut c = cfg();
+    c.pool_windows = 24;
+    let mut g24 = Game::with(c, founders());
+    assert_eq!(g24.view(|c| c.config()).account_storage_bytes, ACCOUNT_MAX + 20 * 17);
+
+    let mut k = Key::new(1);
+    k.nonce = 1;
     let (hex, text) = (k.hex.clone(), r#"{"claim_kindling":{"night":1}}"#.to_string());
     let sig = k.sign(CONTRACT, 1, &text);
-    let bytes = growth(&mut g, "relayer.testnet", |c| {
+    let bare = growth(&mut g, "relayer.testnet", |c| {
         c.act(hex, 1, text, sig);
     });
-    assert_eq!(bytes, ACCOUNT, "a sponsored implicit account");
+    assert_eq!(bare as u64, ACCOUNT_BARE, "a sponsored implicit account");
+    // Wood in all four windows fills the record to its maximum, and no further.
+    let mut total = bare;
+    for w in 0..4u64 {
+        g.at(1, w * 250 + 1);
+        k.nonce += 1;
+        let text = r#"{"throw":{"amount":"50","night":1}}"#.to_string();
+        let sig = k.sign(CONTRACT, k.nonce, &text);
+        let (hex, nonce) = (k.hex.clone(), k.nonce);
+        total += growth(&mut g, "relayer.testnet", |c| {
+            assert!(c.act(hex, nonce, text, sig).ok);
+        });
+    }
+    assert!(total as u64 <= ACCOUNT_MAX + 1_900, "the record plus the first write of the recent-throws ring");
 }
 
 #[test]
-fn a_night_log_and_a_history_bucket_stay_within_the_bounds() {
+fn cold_nights_cost_a_night_log_slot_and_a_history_row() {
     let mut g = Game::new();
     g.at(2, 0);
-    // The first settled night writes one night log and opens one history bucket.
     let first = growth(&mut g, "anyone.testnet", |c| {
         c.settle();
     });
-    eprintln!("an empty night: {first} bytes (night log + new history bucket)");
-    assert!(first <= NIGHT_LOG + HISTORY_BUCKET_BYTES);
-    // The next one adds a row to the bucket and a log in a new slot.
+    assert_eq!(first as u64, NIGHT_LOG_COLD + HISTORY_NEW_BUCKET);
     g.at(3, 0);
     let second = growth(&mut g, "anyone.testnet", |c| {
         c.settle();
     });
-    eprintln!("the second empty night: {second} bytes");
-    assert!(second <= NIGHT_LOG + 69);
+    assert_eq!(second as u64, NIGHT_LOG_COLD + HISTORY_ROW);
 }
 
 #[test]
-fn seats_and_thrower_entries_stay_within_the_bounds() {
+fn a_night_with_wood_keeps_one_record_until_its_last_thrower_collects() {
     let mut g = Game::new();
-    let mut keys: Vec<Key> = (0..10).map(|i| g.kindled_key(i)).collect();
-    let mut seats = 0;
-    for k in keys.iter_mut() {
-        k.nonce += 1;
-        let text = r#"{"throw":{"amount":"100","night":1}}"#.to_string();
-        let sig = k.sign(CONTRACT, k.nonce, &text);
-        let (hex, nonce) = (k.hex.clone(), k.nonce);
-        seats += growth(&mut g, "relayer.testnet", |c| {
-            assert!(c.act(hex, nonce, text, sig).ok);
-        });
+    let mut all: Vec<_> = (0..6).map(founder).collect();
+    for i in 0..10 {
+        let a = acc(&format!("{i:0>64}"));
+        g.register(&a);
+        g.transfer(&founder(0), &a, 3_000);
+        g.at(1, i * 90);
+        g.throw(&a, 2_500);
+        all.push(a);
     }
-    eprintln!("10 seats: {seats} bytes");
-    assert!(seats <= 10 * SEAT);
     g.at(2, 0);
-    let log = growth(&mut g, "anyone.testnet", |c| {
+    let settled = growth(&mut g, "anyone.testnet", |c| {
         c.settle();
     });
-    eprintln!("their night: {log} bytes");
-    assert!(log <= NIGHT_LOG + 10 * NIGHT_LOG_PER_THROWER + HISTORY_BUCKET_BYTES);
+    eprintln!("a lit night of 10 throwers: {settled} bytes");
+    assert!(settled as u64 <= NIGHT_LOG_MAX + OWED_MAX + HISTORY_NEW_BUCKET);
+    // The record goes with the last collection; the night log stays for log_keep nights.
+    let mut freed = 0;
+    for a in all.clone() {
+        freed += growth(&mut g, "anyone.testnet", |c| {
+            c.collect(a);
+        });
+    }
+    eprintln!("ten collections: {freed} bytes");
+    assert!(freed < 0, "collecting frees the night's record and shrinks the accounts' records");
 }

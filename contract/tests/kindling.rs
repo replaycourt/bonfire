@@ -12,13 +12,13 @@ fn a_new_browser_key_gets_kindling_and_a_registration_paid_by_the_contract() {
     assert!(!g.holder(&k.account).registered);
     let out = g.act_kindle(&mut k);
     assert!(out.ok, "{:?}", out.error);
-    assert_eq!(g.balance(&k.account), 500);
+    assert_eq!(g.balance(&k.account), 250);
     let h = g.holder(&k.account);
     assert!(h.registered && h.sponsored && h.held && h.kindled && !h.may_take_kindling);
     assert_eq!(h.nonce, 1);
     let s = g.state();
-    assert_eq!(s.hearth.0, 399_500);
-    assert_eq!(s.kindling_left_tonight, 19);
+    assert_eq!(s.hearth.0, 399_750);
+    assert_eq!(s.kindling_left_tonight, 9);
     assert_eq!(s.accounts_sponsored, 7);
     assert_eq!(s.records.kindling_claims, 1);
     let t = g.last_events("nep141");
@@ -28,7 +28,7 @@ fn a_new_browser_key_gets_kindling_and_a_registration_paid_by_the_contract() {
     assert_eq!(t[0]["data"][0]["memo"], "kindling");
     let b = g.last_events("bonfire");
     assert_eq!(b[0]["event"], "kindling");
-    assert_eq!(b[0]["data"][0]["left_tonight"], 19);
+    assert_eq!(b[0]["data"][0]["left_tonight"], 9);
     g.assert_events_match();
 }
 
@@ -43,7 +43,7 @@ fn kindling_is_paid_once_per_account() {
     assert!(!g.act_kindle(&mut k).ok, "not on a later night either");
     // Spending it all does not make the account new again.
     let to = founder(0);
-    assert!(g.act_transfer(&mut k, &to, 500).ok);
+    assert!(g.act_transfer(&mut k, &to, 250).ok);
     assert!(!g.act_kindle(&mut k).ok);
 }
 
@@ -67,7 +67,7 @@ fn a_self_registered_wallet_takes_kindling_without_using_a_sponsored_seat() {
     let w = acc("wallet.testnet");
     g.register(&w);
     let out = g.kindle(&w);
-    assert_eq!(out.amount, U128(500));
+    assert_eq!(out.amount, U128(250));
     let h = g.holder(&w);
     assert!(h.kindled && !h.sponsored);
     assert_eq!(g.state().accounts_sponsored, 6);
@@ -80,13 +80,13 @@ fn an_unregistered_wallet_is_registered_by_the_contract_on_claiming() {
     g.kindle(&w);
     let h = g.holder(&w);
     assert!(h.registered && h.sponsored && h.kindled);
-    assert_eq!(g.balance(&w), 500);
+    assert_eq!(g.balance(&w), 250);
 }
 
 #[test]
 fn kindling_is_capped_per_night_first_come_first_served() {
     let mut g = Game::new();
-    for i in 0..20 {
+    for i in 0..10 {
         g.kindled_key(i);
     }
     assert_eq!(g.state().kindling_left_tonight, 0);
@@ -96,23 +96,23 @@ fn kindling_is_capped_per_night_first_come_first_served() {
     assert!(out.error.unwrap().contains("all handed out"));
     assert!(!g.holder(&late.account).registered, "a refused stranger leaves no trace");
     g.next_night();
-    assert_eq!(g.state().kindling_left_tonight, 20);
+    assert_eq!(g.state().kindling_left_tonight, 10);
     assert!(g.act_kindle(&mut late).ok);
 }
 
 #[test]
 fn kindling_stops_when_the_hearth_runs_dry() {
     let mut c = cfg();
-    c.hearth_genesis = U128(1_200);
+    c.hearth_genesis = U128(600);
     c.target_start = U128(5_000);
     let mut g = Game::with(c, founders());
     g.kindled_key(1);
     g.kindled_key(2);
-    assert_eq!(g.state().kindling_left_tonight, 0, "200 left is not enough for one more");
+    assert_eq!(g.state().kindling_left_tonight, 0, "100 left is not enough for one more");
     let mut k = Key::new(3);
     let out = g.act_kindle(&mut k);
     assert!(out.error.unwrap().contains("hearth is too low"));
-    assert_eq!(g.state().hearth.0, 200);
+    assert_eq!(g.state().hearth.0, 100);
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn the_contract_pays_storage_for_at_most_max_accounts() {
 #[test]
 fn kindling_per_night_follows_the_clock_even_before_settling() {
     let mut g = Game::new();
-    for i in 0..20 {
+    for i in 0..10 {
         g.kindled_key(i);
     }
     // Night 1 ended but nobody settled it: the clock's night counts, and the claim settles it.

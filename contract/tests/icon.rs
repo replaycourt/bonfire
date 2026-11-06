@@ -1,4 +1,4 @@
-//! `ft_metadata().icon`: a valid, small SVG data URL that shows the fire.
+//! `ft_metadata().icon`: a valid, small SVG data URL that shows the last night and the last seven.
 mod common;
 
 use common::*;
@@ -51,56 +51,95 @@ fn well_formed(svg: &str) {
     assert!(stack.is_empty(), "unclosed: {stack:?}");
 }
 
-/// y of the flame's tip: the smaller, the taller the fire.
+/// y of the main flame's tip (the smaller, the taller), if there is a flame.
 fn flame_top(svg: &str) -> Option<u32> {
     let at = svg.find("<path d='M32 ")? + "<path d='M32 ".len();
     svg[at..].split('C').next()?.parse().ok()
+}
+
+/// The word at the top and its font size.
+fn label(svg: &str) -> (String, u32) {
+    let text = &svg[svg.find("<text").unwrap()..];
+    let at = text.find("font-size='").unwrap() + "font-size='".len();
+    let size = text[at..].split('\'').next().unwrap().parse().unwrap();
+    let word = text[text.find("'>").unwrap() + 2..text.find("</text>").unwrap()].to_string();
+    (word, size)
+}
+
+/// The bottom row, oldest first: 'L' lit, 'S' smoked, 'C' cold.
+fn row(svg: &str) -> String {
+    let mut marks: Vec<(u32, char)> = Vec::new();
+    for i in 0..7u32 {
+        let x = 10 + i * 7;
+        if svg.contains(&format!("<path d='M{x} 52C")) {
+            marks.push((x, 'L'));
+        } else if svg.contains(&format!("<circle cx='{x}' cy='56' r='2.6'")) {
+            marks.push((x, 'S'));
+        } else if svg.contains(&format!("<circle cx='{x}' cy='56' r='2' fill='none'")) {
+            marks.push((x, 'C'));
+        }
+    }
+    marks.into_iter().map(|m| m.1).collect()
+}
+
+fn light(g: &mut Game) {
+    let t = g.state().target.0;
+    g.throw(&founder(0), t * 3 / 2);
+    g.next_night();
 }
 
 #[test]
 fn the_icon_is_a_small_valid_svg_data_url() {
     let mut g = Game::new();
     let url = icon(&mut g);
-    assert!(url.len() < 2_048, "{} bytes", url.len());
     let svg = decode(&url);
-    assert!(svg.contains(">0</text>"), "streak 0 under the logs");
-    assert!(flame_top(&svg).is_none(), "no wood yet, no flame: {svg}");
-    eprintln!("icon: {} bytes as a data URL", url.len());
+    assert_eq!(label(&svg).0, "FIRST NIGHT");
+    assert!(flame_top(&svg).is_none(), "no wood yet, no flame");
+    assert_eq!(row(&svg), "");
+    for _ in 0..7 {
+        light(&mut g);
+    }
+    let url = icon(&mut g);
+    assert!(url.len() < 3_000, "{} bytes", url.len());
+    eprintln!("icon with seven lit nights: {} bytes as a data URL", url.len());
 }
 
 #[test]
-fn a_lit_night_stands_tall_with_the_streak_written_under_it() {
+fn a_lit_streak_stands_tall_and_its_word_grows_with_it() {
     let mut g = Game::new();
     for _ in 0..3 {
-        let t = g.state().target.0;
-        g.throw(&founder(0), t * 3 / 2);
-        g.next_night();
+        light(&mut g);
     }
     let svg = decode(&icon(&mut g));
-    assert!(svg.contains(">3</text>"));
-    assert!(!svg.contains("#8f8c99"), "no smoke after a lit night");
-    assert!(svg.contains("#ff7a1a"));
-    assert_eq!(flame_top(&svg), Some(10), "150% of the target is the tallest flame");
+    assert_eq!(label(&svg), ("LIT \u{00d7}3".to_string(), 9));
+    assert_eq!(flame_top(&svg), Some(20), "150% of the target is the tallest flame");
+    assert!(!svg.contains("#8f8c99' opacity"), "no smoke after a lit night");
+    assert_eq!(row(&svg), "LLL");
+    for _ in 0..12 {
+        light(&mut g);
+    }
+    let svg = decode(&icon(&mut g));
+    assert_eq!(label(&svg), ("LIT \u{00d7}15".to_string(), 13));
+    assert_eq!(row(&svg), "LLLLLLL", "the last seven nights only");
 }
 
 #[test]
-fn a_smoky_night_is_a_low_flame_under_grey_smoke() {
+fn smoked_and_cold_nights_show_smoke_and_their_words() {
     let mut g = Game::new();
+    light(&mut g);
     let t = g.state().target.0;
-    g.throw(&founder(0), t);
-    g.next_night();
-    let lit = flame_top(&decode(&icon(&mut g))).unwrap();
     g.throw(&founder(0), t / 2);
     g.next_night();
     let svg = decode(&icon(&mut g));
-    assert!(svg.contains("#8f8c99"), "grey smoke");
-    assert!(svg.contains(">0</text>"), "the streak is broken");
+    assert_eq!(label(&svg).0, "SMOKED");
+    assert!(svg.contains("#8f8c99' opacity"), "grey smoke");
     let smoky = flame_top(&svg).unwrap();
-    assert!(smoky > lit, "the smoky flame ({smoky}) is lower than the lit one ({lit})");
-    // An empty night: smoke over cold embers.
+    assert!(smoky > 20 + 10, "a low flame");
     g.next_night();
     let svg = decode(&icon(&mut g));
-    assert!(svg.contains("#8f8c99") && flame_top(&svg).is_none());
+    assert_eq!(label(&svg).0, "COLD");
+    assert!(flame_top(&svg).is_none());
+    assert_eq!(row(&svg), "LSC");
 }
 
 #[test]

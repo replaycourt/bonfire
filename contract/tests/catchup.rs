@@ -5,8 +5,12 @@ use bonfire::types::Outcome;
 use common::*;
 use near_sdk::json_types::U128;
 
+fn founders6() -> Vec<near_sdk::AccountId> {
+    (0..6).map(founder).collect()
+}
+
 #[test]
-fn a_hundred_idle_nights_settle_in_batches_of_max_catchup() {
+fn a_hundred_cold_nights_settle_in_batches_of_max_catchup_and_burn_nothing() {
     let mut g = Game::new();
     g.at(101, 0);
     assert_eq!(g.state().nights_due, 100);
@@ -21,16 +25,10 @@ fn a_hundred_idle_nights_settle_in_batches_of_max_catchup() {
     assert_eq!(batches, vec![30, 30, 30, 10]);
     let s = g.state();
     assert_eq!((s.night, s.nights_due, s.due), (101, 0, false));
-    // Every one of them burned 1% of the hearth, rounded down, and shrank the target.
-    let mut hearth: u128 = 400_000;
-    for _ in 0..100 {
-        hearth -= hearth / 100;
-    }
-    assert_eq!(s.hearth.0, hearth);
+    assert_eq!((s.hearth.0, s.supply.0), (400_000, 1_000_000), "cold nights burn nothing");
     assert_eq!(s.target.0, 5_000);
-    assert_eq!(s.records.nights_empty, 100);
-    let founders: Vec<_> = (0..6).map(founder).collect();
-    g.assert_conserved(&founders);
+    assert_eq!(s.records.nights_cold, 100);
+    g.assert_conserved(&founders6());
     g.assert_events_match();
 }
 
@@ -52,20 +50,22 @@ fn a_throw_settles_overdue_nights_first_and_waits_if_more_remain() {
 }
 
 #[test]
-fn a_night_with_wood_followed_by_a_long_gap_pays_out_first() {
+fn a_night_with_wood_followed_by_a_long_gap_keeps_its_credit() {
     let mut g = Game::new();
     g.throw(&founder(0), 20_000);
     g.throw(&founder(1), 5_000);
     g.at(200, 0);
     let out = g.settle();
     assert_eq!(out.settled, 30);
-    assert_eq!(g.night_view(1).map(|n| n.outcome), None, "night 1 is beyond log_keep by now");
     assert_eq!(g.view(|c| c.history(Some(1), Some(1)))[0].outcome, Outcome::Lit);
-    assert_eq!(g.state().records.nights_lit, 1);
     while g.settle().settled > 0 {}
     assert_eq!(g.state().night, 200);
-    let founders: Vec<_> = (0..6).map(founder).collect();
-    g.assert_conserved(&founders);
+    // 25,000 on the pile, all in window 0: 720 shared 4 : 1.
+    assert_eq!(g.balance(&founder(0)), 100_000 + 576);
+    assert_eq!(g.balance(&founder(1)), 100_000 + 144);
+    g.assert_conserved(&founders6());
+    g.collect_all(&founders6());
+    g.assert_conserved(&founders6());
     g.assert_events_match();
 }
 
@@ -86,29 +86,23 @@ fn history_keeps_one_row_per_night_in_a_bounded_ring() {
     }
     g.next_night();
     let rows = g.view(|c| c.history(None, None));
-    assert_eq!(rows.len(), 10);
     assert_eq!(rows.iter().map(|r| r.night).collect::<Vec<_>>(), (1..=10).collect::<Vec<_>>());
     for r in &rows {
         let n = g.night_view(r.night).unwrap();
         assert_eq!((r.outcome, r.target, r.pile, r.supply), (n.outcome, n.target, n.pile, n.supply.unwrap()));
-        assert_eq!(r.minted, n.minted);
-        assert_eq!(r.burned, n.burned);
+        assert_eq!((r.minted, r.burned), (n.minted, n.burned));
     }
-    assert_eq!(rows[0].outcome, Outcome::Lit);
-    assert_eq!(rows[1].outcome, Outcome::Smoke);
+    assert_eq!((rows[0].outcome, rows[1].outcome), (Outcome::Lit, Outcome::Smoked));
 
     // 190 more nights: only the newest 64 (at least 33) stay, oldest first.
     g.at(201, 0);
     while g.settle().settled > 0 {}
     let rows = g.view(|c| c.history(None, Some(500)));
-    let last = rows.last().unwrap().night;
-    assert_eq!(last, 200);
+    assert_eq!(rows.last().unwrap().night, 200);
     assert!((33..=64).contains(&(rows.len() as u32)), "{} rows", rows.len());
     assert!(rows.windows(2).all(|w| w[1].night == w[0].night + 1));
-    assert!(g.view(|c| c.history(Some(1), Some(10))).first().unwrap().night >= rows[0].night);
     let page = g.view(|c| c.history(Some(190), Some(5)));
     assert_eq!(page.iter().map(|r| r.night).collect::<Vec<_>>(), vec![190, 191, 192, 193, 194]);
-    // The supply column follows the burns.
     assert!(rows.windows(2).all(|w| w[1].supply.0 == w[0].supply.0 - w[1].burned.0 + w[1].minted.0));
 }
 
@@ -117,15 +111,13 @@ fn night_logs_cover_the_open_night_and_the_last_log_keep_nights() {
     let mut g = Game::new();
     g.throw(&founder(2), 1_234);
     let open = g.night_view(1).unwrap();
-    assert_eq!(open.outcome, Outcome::Open);
-    assert_eq!(open.throwers.len(), 1);
-    assert_eq!(open.throwers[0].wood, U128(1_234));
-    assert_eq!(open.throwers[0].weight, U128(1_234 * 15_000));
+    assert_eq!((open.outcome, open.throwers, open.pile), (Outcome::Open, 1, U128(1_234)));
+    assert_eq!(open.windows[0].wood, U128(1_234));
+    assert_eq!(open.firestarter, Some(founder(2)));
     for _ in 0..20 {
         g.next_night();
     }
-    let s = g.state();
-    assert_eq!(s.night, 21);
+    assert_eq!(g.state().night, 21);
     for n in 1..=20 {
         assert_eq!(g.night_view(n).is_some(), n > 20 - 14, "night {n}");
     }
@@ -134,14 +126,15 @@ fn night_logs_cover_the_open_night_and_the_last_log_keep_nights() {
 }
 
 #[test]
-fn the_state_view_says_when_a_night_is_due() {
+fn the_state_view_says_when_a_night_is_due_and_which_window_is_open() {
     let mut g = Game::new();
     let s = g.state();
-    assert_eq!((s.night, s.clock_night, s.due), (1, 1, false));
-    assert_eq!(s.night_start_ms, START_MS);
-    assert_eq!(s.night_end_ms, START_MS + NIGHT_MS);
+    assert_eq!((s.night, s.clock_night, s.due, s.window_now), (1, 1, false, 0));
+    assert_eq!(
+        (s.night_start_ms, s.night_end_ms, s.window_end_ms),
+        (START_MS, START_MS + NIGHT_MS, START_MS + NIGHT_MS / 4)
+    );
     g.at(3, 500);
     let s = g.state();
-    assert_eq!((s.night, s.clock_night, s.nights_due, s.due), (1, 3, 2, true));
-    assert_eq!(s.early_bp_now, 12_500, "the factor of wood landing now, on the clock's night");
+    assert_eq!((s.night, s.clock_night, s.nights_due, s.due, s.window_now), (1, 3, 2, true, 2));
 }

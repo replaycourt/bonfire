@@ -48,9 +48,48 @@ pub fn mul_wide(a: u128, b: u128) -> (u128, u128) {
     (hi, lo)
 }
 
+/// `a * b / c`, rounded up. Same bounds as `mul_div`.
+pub fn mul_div_ceil(a: u128, b: u128, c: u128) -> u128 {
+    let q = mul_div(a, b, c);
+    let (ph, pl) = mul_wide(a, b);
+    let (qh, ql) = mul_wide(q, c);
+    if (qh, ql) < (ph, pl) { q + 1 } else { q }
+}
+
 /// `x * bp / 10_000`, rounded down.
 pub fn bp_of(x: u128, bp: u32) -> u128 {
     mul_div(x, bp as u128, BP)
+}
+
+/// Weight of `below` units of wood landing on a pile that already holds `before`, for a night
+/// with `target` (`before + below <= target`): the integral of the pile-position factor, which
+/// falls linearly from `early_max_bp` on an empty pile to 10000 at the target, rounded down.
+///
+/// The reference model writes it `below * (em * 2T - (em - 10000) * (2 * before + below)) / 2T`.
+/// Since `below * em * 2T / 2T` is whole, that is `below * em - ceil(below * (em - 10000) *
+/// (2 * before + below) / 2T)`, which keeps every intermediate inside a u128 at the supply cap.
+pub fn slice_weight(target: u128, early_max_bp: u32, before: u128, below: u128) -> u128 {
+    if below == 0 {
+        return 0;
+    }
+    let span = (early_max_bp as u128) - BP;
+    below * early_max_bp as u128 - mul_div_ceil(below * span, 2 * before + below, 2 * target)
+}
+
+/// Pooled windows: the weight of each window's wood, in window order. A window's wood covers the
+/// slice of the pile from the wood of all earlier windows upward; the part below the target weighs
+/// its slice, the part above it `late_lit_bp` per unit.
+pub fn window_weights(windows: &[u128], target: u128, early_max_bp: u32, late_lit_bp: u32) -> Vec<(u128, u128)> {
+    let mut start: u128 = 0;
+    windows
+        .iter()
+        .map(|&x| {
+            let below = if start >= target { 0 } else { x.min(target - start) };
+            let w = slice_weight(target, early_max_bp, start, below) + (x - below) * late_lit_bp as u128;
+            start += x;
+            (x, w)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -73,6 +112,52 @@ mod tests {
         let ab = mul_wide(a, b);
         assert!(le(qc, ab), "{a} * {b} / {c} = {q} is too big");
         assert!(!le(add(qc, (0, c)), ab), "{a} * {b} / {c} = {q} is too small");
+    }
+
+    #[test]
+    fn ceiling_division_rounds_up_only_with_a_remainder() {
+        assert_eq!(mul_div_ceil(7, 3, 2), 11);
+        assert_eq!(mul_div_ceil(8, 3, 2), 12);
+        assert_eq!(mul_div_ceil(u128::MAX, u128::MAX - 1, u128::MAX), u128::MAX - 1);
+        assert_eq!(mul_div_ceil(u128::MAX, 3, 4), u128::MAX / 4 * 3 + 3);
+    }
+
+    /// The reference model's formula with a 256-bit numerator, for comparison.
+    fn slice_reference(t: u128, em: u128, before: u128, below: u128) -> u128 {
+        // below * (em * 2t - (em - BP) * (2 before + below)) / 2t, all terms non-negative.
+        let inner_hi = mul_wide(em, 2 * t);
+        let inner_lo = mul_wide(em - BP, 2 * before + below);
+        let (lo, borrow) = inner_hi.1.overflowing_sub(inner_lo.1);
+        let inner = (inner_hi.0 - inner_lo.0 - borrow as u128, lo);
+        assert_eq!(inner.0, 0, "the factor integral fits a u128 here");
+        mul_div(below, inner.1, 2 * t)
+    }
+
+    #[test]
+    fn the_slice_weight_matches_the_reference_formula() {
+        let t = 20_000u128 * 10u128.pow(18);
+        for (before, below) in [(0, t), (0, 1), (t - 1, 1), (t / 3, t / 3), (12_345, 6_789), (t / 2, t / 2)] {
+            assert_eq!(slice_weight(t, 40_000, before, below), slice_reference(t, 40_000, before, below));
+        }
+        // A whole pile in one go earns the average factor (early_max + 1) / 2.
+        assert_eq!(slice_weight(1_000, 40_000, 0, 1_000), 1_000 * 25_000);
+        // The first unit earns early_max (rounded down), the last almost 1.0.
+        assert_eq!(slice_weight(1_000, 40_000, 0, 1), 39_985);
+        assert_eq!(slice_weight(1_000, 40_000, 999, 1), 10_015);
+        // Splitting the slice never changes it by more than the rounding of each part.
+        let whole = slice_weight(t, 40_000, 0, t);
+        let parts: u128 = (0..10).map(|i| slice_weight(t, 40_000, i * t / 10, t / 10)).sum();
+        assert!(whole - parts < 10);
+    }
+
+    #[test]
+    fn the_slice_weight_fits_at_the_supply_cap() {
+        let cap = 1u128 << 112;
+        let w = slice_weight(cap, 60_000, 0, cap);
+        assert_eq!(w, cap * 35_000);
+        assert_eq!(slice_weight(cap, 60_000, cap / 2, cap / 2), slice_weight(cap, 60_000, cap / 2, cap / 2));
+        let windows = window_weights(&[cap / 2, cap / 2, cap / 4], cap, 60_000, 10_000);
+        assert_eq!(windows[2].1, cap / 4 * 10_000);
     }
 
     #[test]

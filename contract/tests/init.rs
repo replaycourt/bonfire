@@ -30,7 +30,6 @@ fn the_default_launch_is_valid_and_config_shows_it_unchanged() {
     assert_eq!(v.genesis_supply, U128(1_000_000));
     assert_eq!(v.genesis_ms, START_MS);
     assert_eq!(v.supply_cap, U128(SUPPLY_CAP));
-    assert!(v.max_throwers_limit >= cfg().max_throwers_per_night);
     let s = g.state();
     assert_eq!((s.night, s.target.0, s.hearth.0, s.supply.0, s.streak), (1, 20_000, 400_000, 1_000_000, 0));
     assert_eq!(s.accounts_sponsored, 6);
@@ -40,7 +39,6 @@ fn the_default_launch_is_valid_and_config_shows_it_unchanged() {
 #[test]
 fn every_bad_parameter_is_refused_at_init() {
     type Case = (&'static str, Box<dyn Fn(&mut Config, &mut Vec<Founder>)>);
-    let too_many = u32::MAX;
     let cases: Vec<Case> = vec![
         ("name:", Box::new(|c, _| c.name = String::new())),
         ("name:", Box::new(|c, _| c.name = "x".repeat(65))),
@@ -76,13 +74,14 @@ fn every_bad_parameter_is_refused_at_init() {
         ("smoke_bp:", Box::new(|c, _| c.smoke_bp = 10_001)),
         ("hearth_burn_bp:", Box::new(|c, _| c.hearth_burn_bp = 10_001)),
         ("early_max_bp:", Box::new(|c, _| c.early_max_bp = 9_999)),
-        ("early_max_bp:", Box::new(|c, _| c.early_max_bp = 50_001)),
+        ("early_max_bp:", Box::new(|c, _| c.early_max_bp = 60_001)),
         ("late_lit_bp:", Box::new(|c, _| c.late_lit_bp = 10_001)),
         ("min_throw:", Box::new(|c, _| c.min_throw = U128(0))),
         ("kindling:", Box::new(|c, _| c.kindling = U128(0))),
         ("kindling_per_night:", Box::new(|c, _| c.kindling_per_night = 1_001)),
-        ("max_throwers_per_night: at least 1", Box::new(|c, _| c.max_throwers_per_night = 0)),
-        ("max_throwers_per_night: at most", Box::new(move |c, _| c.max_throwers_per_night = too_many)),
+        ("pool_windows:", Box::new(|c, _| c.pool_windows = 0)),
+        ("pool_windows:", Box::new(|c, _| c.pool_windows = 25)),
+        ("target_cap_bp:", Box::new(|c, _| c.target_cap_bp = 10_001)),
         ("max_accounts: below the number of founders", Box::new(|c, _| c.max_accounts = 5)),
         ("max_accounts: at most", Box::new(|c, _| c.max_accounts = 1_000_001)),
         ("max_catchup:", Box::new(|c, _| c.max_catchup = 0)),
@@ -110,7 +109,9 @@ fn the_edges_of_every_range_are_accepted() {
     c.hearth_cut_bp = 10_000;
     c.smoke_bp = 10_000;
     c.hearth_burn_bp = 10_000;
-    c.early_max_bp = 50_000;
+    c.early_max_bp = 60_000;
+    c.pool_windows = 24;
+    c.target_cap_bp = 10_000;
     c.late_lit_bp = 0;
     c.kindling_per_night = 0;
     c.max_catchup = 1_000;
@@ -119,15 +120,17 @@ fn the_edges_of_every_range_are_accepted() {
     c.target_min = c.target_start;
     assert_eq!(init_error(c, founders()), None);
     let mut c = cfg();
-    c.max_throwers_per_night = bonfire::config::max_throwers_limit(&contract_id());
+    c.pool_windows = 1;
+    c.target_cap_bp = 0;
     assert_eq!(init_error(c, Vec::new()), None, "a launch without founders gives everything to the hearth");
 }
 
 #[test]
-fn the_thrower_limit_depends_on_the_length_of_the_contract_name() {
-    let short = max_throwers_limit(&acc("fire.near"));
-    let long = max_throwers_limit(&acc(&"b".repeat(64)));
-    eprintln!("max_throwers_per_night limit: {short} for fire.near, {long} for a 64-character name");
-    assert!(short > long);
-    assert!(long >= 60, "even the longest contract name leaves room for {long} throwers");
+fn a_night_s_events_fit_one_receipt_whatever_the_contract_is_called() {
+    // Throwers collect in their own calls, so a night's events do not grow with them.
+    for name in ["fire.near", CONTRACT, &"b".repeat(64)] {
+        let worst = bonfire::night_log_worst(&acc(name));
+        eprintln!("worst settled night for {name}: {worst} bytes of logs");
+        assert!(worst < SETTLE_LOG_BUDGET / 10);
+    }
 }
