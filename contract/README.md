@@ -72,6 +72,35 @@ exists. A key whose account does not exist and whose action is refused leaves no
 night is signed, a delayed or replayed message can never land on a later night. A relayer can
 withhold a signed throw until its night ends; it then fails with nothing lost.
 
+Why not NEP-366 meta-transactions: a delegate action is checked against an access key of the
+sender's account on chain, so every visitor would first need an account created for its key, paid
+by a sponsor. With `act` the visitor is only a NEP-141 balance inside the contract, which checks
+the ed25519 signature itself. The price is a signing scheme of its own, which wallets do not know.
+
+### Playing from a NEAR account, without the relay
+
+The relay keys are a convenience. Any NEAR account can play with its own key and gas, through the
+same rules (near-cli-rs; `ME` is an account whose key the CLI holds):
+
+    C=bonfire-coin.testnet; ME=your-account.testnet
+    # tonight's number is clock_night
+    near contract call-function as-read-only $C state json-args '{}' network-config testnet now
+    # 200 EMBER from the hearth, once per account, 4 claims a night
+    near contract call-function as-transaction $C claim_kindling json-args '{}' \
+      prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as $ME network-config testnet sign-with-keychain send
+    # throw 50 EMBER on night 312 (use tonight's clock_night); exactly 1 yoctoNEAR
+    near contract call-function as-transaction $C throw_wood json-args '{"amount":"50000000000000000000","night":312}' \
+      prepaid-gas '30 Tgas' attached-deposit '1 yoctoNEAR' sign-as $ME network-config testnet sign-with-keychain send
+    # after dawn: the balance already counts the night's credit; collect writes it
+    near contract call-function as-read-only $C ft_balance_of json-args "{\"account_id\":\"$ME\"}" network-config testnet now
+    near contract call-function as-transaction $C collect json-args "{\"account_id\":\"$ME\"}" \
+      prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as $ME network-config testnet sign-with-keychain send
+
+`ft_transfer_call` with `receiver_id` the contract, `msg` `"throw:<night>"` and 1 yoctoNEAR
+throws the same way. If tonight's kindling is handed out, the claim fails until the next night; if
+the sponsored accounts are full, `storage_deposit` (0.00211 NEAR, `storage_balance_bounds`) comes
+first. Use the signing option your CLI is set up for in place of `sign-with-keychain`.
+
 ## Views
 
 | View | Arguments | Returns |
@@ -272,6 +301,14 @@ implicit accounts cost nothing, so the "once per account" rule alone stops nobod
 farmer is `kindling_per_night` claims per night from a finite hearth: draining it is slow, mints
 nothing new, and slows newcomers. `max_accounts` caps the storage the contract pays, so a farmer
 can also exhaust the sponsored seats; after that newcomers need a `storage_deposit` from a wallet.
+
+What the rules do not stop: showing up compounds. A lit night pays its throwers new EMBER by
+weight, so a holder that throws safely every night gains share from everyone who throws less. The
+target cap keeps one night's mint at or below 1 % of the free supply (25 % times `mint_bp` 4 %);
+it limits the rate, not the level, and not any holder's share. A holder with at least 25 % of the
+free supply can always cover the target alone (unless `target_min` is above the cap). Numbers
+over 365 nights:
+[`../docs/SIMULATION.md`](../docs/SIMULATION.md#a-year-with-the-launch-values-what-compounds).
 
 ## Checking the deployment
 

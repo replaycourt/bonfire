@@ -15,6 +15,19 @@ Open https://replaycourt.github.io/bonfire/web/ in Chrome 137+, Safari 17+ or Fi
 
 The [README](README.md#how-to-play) walks through the same steps; to run the page locally, or with made-up data (`?mock=1`), see [Run it yourself](README.md#run-it-yourself).
 
+### Play without our relay
+
+The page plays through public relay keys. If they are spent, or you would rather use your own account, any NEAR testnet account plays by the same rules with its own gas (near-cli-rs; all commands, `collect` included, in [contract/README.md](contract/README.md#playing-from-a-near-account-without-the-relay)):
+
+```sh
+C=bonfire-coin.testnet; ME=your-account.testnet
+near contract call-function as-read-only $C state json-args '{}' network-config testnet now   # tonight is clock_night
+near contract call-function as-transaction $C claim_kindling json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as $ME network-config testnet sign-with-keychain send
+near contract call-function as-transaction $C throw_wood json-args '{"amount":"50000000000000000000","night":312}' prepaid-gas '30 Tgas' attached-deposit '1 yoctoNEAR' sign-as $ME network-config testnet sign-with-keychain send   # night: tonight's clock_night
+```
+
+After dawn `ft_balance_of` already counts your wood back and your share; `collect` writes it. If tonight's four kindling claims are gone, the claim fails until the next night.
+
 ## 2. One-command checks (read-only, about 5 seconds)
 
 ```sh
@@ -80,10 +93,11 @@ node --test 'web/test/*.test.mjs'       # 90 tests; Node 22+, no install; about 
 node --test 'scripts/test/*.test.mjs'   # 7 tests, offline (fetch is faked); about 50 seconds
 cd contract && cargo test               # 121 tests in the SDK's mock VM; a cold build took 8.5 minutes, the tests about 1 second
 python3 sim/bonfire_sim.py scenarios    # reruns the scenarios and rewrites docs/SIMULATION.md's tables and charts; about 80 seconds
+python3 sim/bonfire_sim.py longrun      # the launch values over 365 nights; not part of the default run; about 6 minutes
 ```
 
 The simulation rerun is deterministic: on a copy of this repository it reproduced `docs/SIMULATION.md` and the three charts in `docs/sim/` byte for byte. `python3 sim/bonfire_sim.py` with the parameter sweep takes about 20 minutes.
 
 ## 5. What is real and what is not
 
-Testnet only; EMBER has no value; five labelled demo bots, run by GitHub Actions, keep the fire alive by the same rules as everyone; public gas keys; a fire that moves only when someone calls; AI-written code that no human reviewed line by line; no audit. The details and the honest limits are in the README: [What is real and what is not](README.md#what-is-real-and-what-is-not), [Honest limits](README.md#honest-limits).
+Testnet only; EMBER has no value; five labelled demo bots, run by GitHub Actions, keep the fire alive by the same rules as everyone; public gas keys; a fire that moves only when someone calls; AI-written code that no human reviewed line by line; no audit. And what the rules do not stop: a holder that lights alone, showing up that compounds over a year, a kindling farm. The details and the honest limits are in the README: [What is real and what is not](README.md#what-is-real-and-what-is-not), [Honest limits](README.md#honest-limits).

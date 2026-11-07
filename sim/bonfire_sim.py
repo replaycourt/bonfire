@@ -18,6 +18,10 @@ Commands:
   python3 sim/bonfire_sim.py scenarios   scenarios and charts with sim/params.json
   python3 sim/bonfire_sim.py sweep       parameter sweep and sensitivity only
   python3 sim/bonfire_sim.py testnet     testnet demo variant only
+  python3 sim/bonfire_sim.py longrun     the launch values over 365 nights (--nights N); not
+                                         part of all
+  python3 sim/bonfire_sim.py deployed    the testnet run with the two values changed at the
+                                         testnet launch; not part of all
 """
 
 import argparse
@@ -637,7 +641,9 @@ def pick(mix, x):
 
 
 def run(prm, scenario, seed, rule=MAIN_RULE, split_accounts=None,
-        nights=NIGHTS, keep_rows=False):
+        nights=NIGHTS, keep_rows=False, on_night=None):
+    """One scenario for one seed. `on_night(night, fire, row, agents)`, if given, is called
+    after every settled night and only reads; the long-run table uses it."""
     spec = SCENARIOS[scenario]
     agents, founders = build_population(spec, prm, seed, split_accounts)
     fire = Fire(prm, founders, rule)
@@ -743,6 +749,8 @@ def run(prm, scenario, seed, rule=MAIN_RULE, split_accounts=None,
         series["streak"].append(row["streak"])
         if keep_rows:
             rows.append({k: v for k, v in row.items() if k not in ("throws", "rewards", "losses")})
+        if on_night is not None:
+            on_night(night, fire, row, agents)
     # per-behaviour totals
     kinds = {}
     for a in agents:
@@ -1276,6 +1284,91 @@ def _task_testnet(args):
     r = run_testnet(prm, seed, judges, rule)
     r.pop("series")
     return r
+
+
+# The two values deploy.mjs changed when it launched bonfire-coin.testnet (docs/testnet-launch.md;
+# scripts/judge-checks.sh check 4 compares them with config() on chain). sim/params.json keeps the
+# variant the simulation picked.
+TESTNET_DEPLOYED = {"hearth_genesis": 3_000_000, "kindling_per_night": 4}
+
+
+def deployed_params(prm_t):
+    founders = prm_t["genesis_supply"] - prm_t["hearth_genesis"]
+    prm = dict(prm_t, **TESTNET_DEPLOYED)
+    prm["genesis_supply"] = prm["hearth_genesis"] + founders
+    return prm
+
+
+# ---------------------------------------------------------------------------
+# The long run: the launch values over a year (command `longrun`)
+# ---------------------------------------------------------------------------
+
+LONGRUN_SCENARIOS = ["healthy", "whale", "solo", "all_in"]
+LONGRUN_NIGHTS = 365
+LONGRUN_MARKS = (60, 180)
+
+
+def holding(fire, agent):
+    return sum(fire.bal.get(x, 0) for x in agent.accounts)
+
+
+def run_long(prm, scenario, seed, nights=LONGRUN_NIGHTS):
+    """Runs one scenario for `nights` nights and reads the state at nights 60, 180 and the last.
+
+    The run itself is `run()`, unchanged: its first 60 nights are the 60-night run of the same
+    seed, so the night-60 numbers here equal those of the scenario table.
+    """
+    marks = sorted(set(m for m in LONGRUN_MARKS if m < nights) | {nights})
+    spec = SCENARIOS[scenario]
+    agents0, founders = build_population(spec, prm, seed)
+    genesis = prm["genesis_supply"] * UNIT
+    top0 = max(sum(founders[x] for x in a.accounts) for a in agents0)
+    free0 = sum(sum(founders[x] for x in a.accounts) for a in agents0
+                if a.kind == "free_rider")
+    # free supply (supply - hearth - pile) when the night's target was set
+    seen = {"lit": 0, "shared": 0, "max_mint_free": 0.0,
+            "free_prev": genesis - prm["hearth_genesis"] * UNIT}
+    snaps = {}
+
+    def on_night(night, fire, row, agents):
+        if row["lit"]:
+            seen["lit"] += 1
+            seen["shared"] += row["shared"]
+            seen["max_mint_free"] = max(seen["max_mint_free"], row["minted"] / seen["free_prev"])
+        seen["free_prev"] = fire.supply - fire.hearth
+        n = night + 1
+        if n not in marks:
+            return
+        free = fire.supply - fire.hearth          # the pile is empty after settling
+        top_val, top = max(((holding(fire, a), a) for a in agents), key=lambda h: h[0])
+        snap = {"supply_ratio": fire.supply / genesis, "lit_rate": seen["lit"] / n,
+                "longest": fire.longest, "capped": fire.capped_nights,
+                "top_share": top_val / fire.supply, "top_free": top_val / free,
+                "top_role": top.role, "hearth": fire.hearth / UNIT,
+                "target_free": fire.target / free, "max_mint_free": seen["max_mint_free"]}
+        if free0:
+            fr = sum(holding(fire, a) for a in agents if a.kind == "free_rider" and not a.newcomer)
+            snap["free_delta"] = (fr / fire.supply) / (free0 / genesis) - 1
+        solo = [a for a in agents if a.kind == "solo_lighter"]
+        if solo:
+            s = solo[0]
+            snap["solo_balance"] = holding(fire, s) / UNIT
+            snap["solo_share"] = holding(fire, s) / fire.supply
+            snap["solo_free"] = holding(fire, s) / free
+            snap["solo_mint_share"] = s.reward / seen["shared"] if seen["shared"] else None
+            snap["solo_loss"] = s.loss / UNIT
+        snaps[n] = snap
+
+    run(prm, scenario, seed, MAIN_RULE, nights=nights, on_night=on_night)
+    solo0 = [sum(founders[x] for x in a.accounts) for a in agents0 if a.kind == "solo_lighter"]
+    return {"scenario": scenario, "seed": seed, "top0": top0 / genesis, "snaps": snaps,
+            "solo0": solo0[0] / UNIT if solo0 else None,
+            "genesis": genesis, "free_genesis": genesis - prm["hearth_genesis"] * UNIT}
+
+
+def _task_long(args):
+    prm, scenario, seed, nights = args
+    return run_long(prm, scenario, seed, nights)
 
 
 # ---------------------------------------------------------------------------
@@ -1884,6 +1977,69 @@ def md_drain(prm):
                "{:,}".format(rate), "{:,}".format(prm["hearth_genesis"]), hours, hours / 24))
 
 
+ROLE_NAMES = {"loyal": "loyal", "fair_weather": "fair-weather", "sniper": "sniper",
+              "whale": "whale", "whale_sniper": "whale that snipes",
+              "solo_lighter": "the solo lighter", "all_in": "all in", "free_rider": "free rider"}
+
+
+def md_longrun(results, nights, seeds):
+    by = {}
+    for r in results:
+        by.setdefault(r["scenario"], []).append(r)
+    rows, solo_rows, top0, max_mint = [], [], [], 0.0
+    for sc in LONGRUN_SCENARIOS:
+        rs = by.get(sc)
+        if not rs:
+            continue
+        top0.append("%s %.1f %%" % (SCENARIOS[sc]["title"].lower(), 100 * med([r["top0"] for r in rs])))
+        for n in sorted(rs[0]["snaps"]):
+            ss = [r["snaps"][n] for r in rs]
+            max_mint = max([max_mint] + [s["max_mint_free"] for s in ss])
+            roles = [s["top_role"] for s in ss]
+            role = max(set(roles), key=roles.count)
+            sup = [s["supply_ratio"] for s in ss]
+            rows.append([
+                SCENARIOS[sc]["title"], "%d" % n,
+                "%.3f (%.3f-%.3f)" % (med(sup), min(sup), max(sup)),
+                "%.0f %%" % (100 * med([s["lit_rate"] for s in ss])),
+                "%d" % med([s["longest"] for s in ss]),
+                "%d" % med([s["capped"] for s in ss]),
+                "%.1f %% (%s)" % (100 * med([s["top_share"] for s in ss]), ROLE_NAMES.get(role, role)),
+                "%.1f %%" % (100 * med([s["top_free"] for s in ss])),
+                pct(med([s.get("free_delta") for s in ss]), 1, True),
+                "{:,.0f}".format(med([s["hearth"] for s in ss])),
+            ])
+            if sc == "solo":
+                solo_rows.append([
+                    "%d" % n,
+                    "{:,.0f}".format(med([s["solo_balance"] for s in ss])),
+                    "%.1f %%" % (100 * med([s["solo_share"] for s in ss])),
+                    "%.1f %%" % (100 * med([s["solo_free"] for s in ss])),
+                    "%.1f %%" % (100 * med([s["solo_mint_share"] for s in ss])),
+                    "{:,.0f}".format(max(s["solo_loss"] for s in ss)),
+                ])
+    out = table(["Scenario", "Night", "Supply (x genesis, seed range)", "Lit nights so far",
+                 "Longest streak", "Nights the cap set the target", "Largest holder: share of supply",
+                 "Largest holder: share of free supply", "Founding free riders' share",
+                 "Hearth (EMBER)"], rows)
+    out += ("\n\nLaunch values and rules, %d nights, medians over %d seeds. Free supply is supply "
+            "minus hearth (and pile). The largest holder is whoever holds most at that night; in "
+            "brackets its behaviour in most seeds. At genesis the largest holder holds: %s of "
+            "supply. Founding free riders' share: the change in their share of supply since "
+            "genesis. The largest mint of any night in these runs was %.2f %% of the free supply "
+            "when that night's target was set." % (nights, seeds, ", ".join(top0), 100 * max_mint))
+    if solo_rows:
+        out += "\n\n" + table(["Night", "Solo lighter's balance (EMBER)", "Its share of supply",
+                               "Its share of free supply", "Its share of the throwers' mint so far",
+                               "Its wood lost to smoke, worst seed (EMBER)"], solo_rows)
+        s0 = by["solo"][0]
+        out += ("\n\nThe opening-bell solo lighter starts with {:,.0f} EMBER: {:.1f} % of supply "
+                "and {:.1f} % of the free supply. Medians over {:d} seeds.").format(
+                    s0["solo0"], 100 * s0["solo0"] * UNIT / s0["genesis"],
+                    100 * s0["solo0"] * UNIT / s0["free_genesis"], seeds)
+    return out
+
+
 def inject(doc_path, blocks):
     """Replace <!-- BEGIN generated:NAME --> ... <!-- END generated:NAME --> blocks."""
     if not os.path.exists(doc_path):
@@ -2082,7 +2238,7 @@ def _task_split(args):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Bonfire community simulation")
     ap.add_argument("command", nargs="?", default="all",
-                    choices=["all", "scenarios", "sweep", "testnet"])
+                    choices=["all", "scenarios", "sweep", "testnet", "longrun", "deployed"])
     ap.add_argument("--workers", type=int, default=max(1, min(4, os.cpu_count() or 1)))
     ap.add_argument("--write-params", action="store_true",
                     help="write the sweep's pick to sim/params.json (all always does)")
@@ -2090,6 +2246,8 @@ def main(argv=None):
                     help="start the sweep from the first guess or from sim/params.json")
     ap.add_argument("--rounds", type=int, default=SWEEP_ROUNDS,
                     help="most rounds of the sweep")
+    ap.add_argument("--nights", type=int, default=LONGRUN_NIGHTS,
+                    help="nights of the longrun command (the other commands always run %d)" % NIGHTS)
     args = ap.parse_args(argv)
     prm, prm_t = load_params()
     os.makedirs(DOCS_SIM, exist_ok=True)
@@ -2232,6 +2390,35 @@ def main(argv=None):
         for label, r in tn:
             print("testnet %s: lit %.2f, pivotal %s, supply end %.3f, hearth end %.0f"
                   % (label, r["lit_rate"], r["pivotal"], r["supply_end"], r["hearth_end"]))
+
+    if args.command == "longrun":
+        if args.nights < 1:
+            raise SystemExit("--nights must be at least 1")
+        print("longrun: %s, %d nights x %d seeds" % (", ".join(LONGRUN_SCENARIOS), args.nights,
+                                                       len(SEEDS)))
+        res = run_many([(prm, sc, seed, args.nights) for sc in LONGRUN_SCENARIOS for seed in SEEDS],
+                       args.workers, _task_long)
+        blocks["longrun"] = md_longrun(res, args.nights, len(SEEDS))
+        print(blocks["longrun"])
+
+    if args.command == "deployed":
+        prm_d = deployed_params(prm_t)
+        tseeds = [1, 2, 3, 4]
+        res_bots = run_many([(prm_d, s, 0, MAIN_RULE) for s in tseeds], args.workers,
+                            _task_testnet)
+        res_judges = run_many([(prm_d, s, TESTNET_JUDGES, MAIN_RULE) for s in tseeds],
+                              args.workers, _task_testnet)
+
+        def medrun_d(rs):
+            return {k: med([r[k] for r in rs]) for k in rs[0]
+                    if rs[0][k] is None or (isinstance(rs[0][k], (int, float))
+                                            and not isinstance(rs[0][k], bool))}
+
+        blocks["testnet_deployed"] = md_testnet(
+            [("demo bots only, deployed values", medrun_d(res_bots)),
+             ("demo bots and %d judges, deployed values" % TESTNET_JUDGES, medrun_d(res_judges))],
+            prm_d)
+        print(blocks["testnet_deployed"])
 
     if inject(os.path.join(ROOT, "docs", "SIMULATION.md"), blocks):
         print("updated docs/SIMULATION.md")

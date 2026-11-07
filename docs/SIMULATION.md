@@ -1,6 +1,6 @@
 # Bonfire: 60 nights of community behaviour
 
-The track asks to simulate 60 days of community behaviour first, show supply over time under a few scenarios, and then pick the parameters. This document is that simulation. It models the contract's rules, runs seven communities and a stress case over 60 nights each, sweeps the main knobs, and picks the launch parameters in `sim/params.json`.
+The track asks to simulate 60 days of community behaviour first, show supply over time under a few scenarios, and then pick the parameters. This document is that simulation. It models the contract's rules, runs nine scenarios over 60 nights each (six communities, two sybil attacks on the healthy one, and a stress case), sweeps the main knobs, and picks the launch parameters in `sim/params.json`. Four of the scenarios also run for 365 nights, to show what compounds.
 
 The rules changed twice after DESIGN.md. A first pass ran DESIGN.md as written and found flaws. An adversarial review then found more, and the rules changed:
 
@@ -22,7 +22,7 @@ Tables between `generated` markers are written by the script on every run. The p
 python3 sim/bonfire_sim.py
 ```
 
-This needs Python 3.8 or later and only the standard library. It runs everything: the scenarios under every rule set, the sweep, the sensitivity check and the testnet variant. It writes the charts in `docs/sim/` and the generated blocks in this file. It first runs the sweep and writes its pick to `sim/params.json`, then runs everything else with that pick, so one run is always consistent. It takes about 20 minutes on four idle cores, most of it the sweep. `python3 sim/bonfire_sim.py scenarios` takes about a minute and redoes the scenarios and the charts. `sweep` reruns only the sweep and the sensitivity check (`--write-params` also writes the pick). Every run is deterministic: the same seeds give the same numbers to the last unit.
+This needs Python 3.8 or later and only the standard library. It runs everything: the scenarios under every rule set, the sweep, the sensitivity check and the testnet variant. It writes the charts in `docs/sim/` and the generated blocks in this file. It first runs the sweep and writes its pick to `sim/params.json`, then runs everything else with that pick, so one run is always consistent. It takes about 20 minutes on four idle cores, most of it the sweep. `python3 sim/bonfire_sim.py scenarios` takes about a minute and redoes the scenarios and the charts. `sweep` reruns only the sweep and the sensitivity check (`--write-params` also writes the pick). Two commands are not part of the default run and leave every other table alone: `longrun` writes the 365-night table (about 6 minutes; `--nights N` for another length), and `deployed` the testnet run with the two values changed at the testnet launch (about 30 seconds). Every run is deterministic: the same seeds give the same numbers to the last unit.
 
 ## Method
 
@@ -142,7 +142,7 @@ Medians over 8 seeds. Early, late and the two sniping columns: net reward per EM
 - **Fading community.** It lights the fire while it still plays, then smokes. With no hearth burn on empty nights and a capped burn on smoky ones, its supply ends level with genesis.
 - **Whale-dominated, sniper-heavy and free-rider-heavy communities.** They stay within 7 % of genesis.
 - **Opening-bell solo lighter.** Supply grows by 27 %, and free riders lose a fifth of their share. The solo lighter takes two thirds of the mint, and the community's early wood still earns 1.9 % per EMBER (finding 1).
-- **Everyone throws everything.** This stress case is the ceiling: the fire is lit every night, and supply grows by 32 % in 60 nights. The target cap holds it there. Under DESIGN.md's rules, which have no target cap, the same stress case reaches 1.65x (criteria table).
+- **Everyone throws everything.** This stress case is the ceiling: the fire is lit every night, and supply grows by 32 % in 60 nights. The target cap keeps it there over 60 nights. Under DESIGN.md's rules, which have no target cap, the same stress case reaches 1.65x (criteria table). The cap limits each night's mint, not the level: over 365 nights the stress case reaches 17.9x ("A year with the launch values").
 
 ![Healthy community: target and pile per night](sim/target_pile.svg)
 
@@ -279,13 +279,13 @@ Combined with pooled windows, it passed at `early_max` 5.0, `smoke_pct` 1 %, yie
 **7. The kindling farm drains at a fixed, published rate.** It takes at most `kindling * kindling_per_night` a night.
 
 - **Launch values:** 2,500 EMBER a night, about 104 an hour. That is 150,000 EMBER over 60 nights, 38 % of the hearth. The first guess (500 x 20) emptied the hearth by night 45.
-- **Testnet:** the night is 5 minutes, so the rate per hour matters. 200 EMBER x 1 claim a night x 12 nights an hour is 2,400 EMBER an hour. A script that wins every claim needs at least 375 hours (15.6 days) to empty the 900,000 EMBER testnet hearth.
+- **Testnet:** the night is 5 minutes, so the rate per hour matters. 200 EMBER x 1 claim a night x 12 nights an hour is 2,400 EMBER an hour. A script that wins every claim needs at least 375 hours (15.6 days) to empty the 900,000 EMBER testnet hearth. The deployed contract has 4 claims a night and a 3,000,000 EMBER hearth: 9,600 EMBER an hour, at least 312.5 hours (13.0 days).
 
 The farm's real cost is the newcomers it crowds out: while it wins every claim, nobody else gets kindling, judges included.
 
 **8. The hearth burn was sized to the hearth, not to the fire (fixed).** A smoky night burned 1 % of a 400,000 EMBER hearth whether the community was large or small, and an empty night burned it too. In a small community the burns outweighed the mint, and free riders gained share: +1.2 % in the free-rider-heavy community with the first guess. The revised rules burn nothing on empty nights and cap a smoky night's hearth burn at one night's mint. With `hearth_burn_pct` 0.25 %, free riders lose 2.3 % of their share there.
 
-**9. The target cap bounds the stress case, and the solo lighter lives with it.** When everyone throws everything, the target grows until the cap stops it at 25 % of the free supply. Supply then grows by 32 % in 60 nights, against 65 % without the cap. The cap also keeps the target within a large holder's reach: in the solo-lighter scenario it set the target on 22 of 60 nights. 50 % would bind less against the solo lighter (supply 1.20x) but lets the stress case reach 1.52x. 10 % binds in the healthy community too, which is then lit every night.
+**9. The target cap bounds the stress case over 60 nights, and the solo lighter lives with it.** When everyone throws everything, the target grows until the cap stops it at 25 % of the free supply. Supply then grows by 32 % in 60 nights, against 65 % without the cap. The cap bounds each night's mint (at most 1 % of the free supply), not the level: over 365 nights the stress case reaches 17.9x ("A year with the launch values"). The cap also keeps the target within a large holder's reach: in the solo-lighter scenario it set the target on 22 of 60 nights. 50 % would bind less against the solo lighter (supply 1.20x) but lets the stress case reach 1.52x. 10 % binds in the healthy community too, which is then lit every night.
 
 **10. For the contract: pooled weights and 256-bit arithmetic.** For the open night the contract needs, per window, the pile at the window's start and the window's total wood. It also needs each holder's wood per window. A holder's weight is computed at payout, which lazy payment allows. Pooling is linear, so the weight can also be computed per holder without a list of throwers. In basis points the window's weight is `below * (early_max * 2 * target - (early_max - 10000) * (2 * pile + below)) / (2 * target) + above * late_lit`. Its intermediate product exceeds `u128` by far, so it needs the 256-bit `mul_div` the contract already has, rounded down. The share `shared * weight / total_weight` needs the same.
 
@@ -300,6 +300,46 @@ p* = ln(1 / (1 - shrink_pct)) / (ln(1 + grow_pct) + ln(1 / (1 - shrink_pct)))
 ```
 
 This holds whatever the size of the community, because the target follows the community's capacity up and down. The launch values (7 %, 10 %) give p* = 61 %; the first guesses (5 %, 10 %) give 68 %. The testnet run, where the bots throw the same amounts for two weeks, lands on 61 %. Over 60 nights the healthy community lights more often than p*, because the target first climbs from `target_start` with nearly every night lit. A higher `target_start` shortens that climb and lowers the 60-night rate. The first tables of the sweep show both effects.
+
+## A year with the launch values: what compounds
+
+The track asks for 60 days, and the sweep judged the launch values on 60 nights. Sixty nights hide one effect: whoever throws safely and often gains share every lit night, and that compounds. This section runs four scenarios for 365 nights with the launch values and rules, unchanged. The first 60 nights of each run are the 60-night run of the same seed.
+
+<!-- BEGIN generated:longrun -->
+| Scenario | Night | Supply (x genesis, seed range) | Lit nights so far | Longest streak | Nights the cap set the target | Largest holder: share of supply | Largest holder: share of free supply | Founding free riders' share | Hearth (EMBER) |
+|---|---|---|---|---|---|---|---|---|---|
+| Healthy community | 60 | 1.112 (1.109-1.117) | 80 % | 27 | 0 | 6.3 % (whale) | 9.2 % | -10.1 % | 344,701 |
+| Healthy community | 180 | 1.398 (1.372-1.401) | 69 % | 27 | 0 | 6.0 % (whale) | 7.3 % | -28.4 % | 249,206 |
+| Healthy community | 365 | 2.317 (2.207-2.435) | 67 % | 27 | 11 | 5.7 % (whale) | 6.2 % | -56.8 % | 191,654 |
+| Whale-dominated | 60 | 1.068 (1.051-1.089) | 75 % | 13 | 0 | 22.8 % (whale) | 34.7 % | -6.4 % | 365,230 |
+| Whale-dominated | 180 | 1.267 (1.237-1.315) | 67 % | 13 | 0 | 27.1 % (whale) | 35.6 % | -21.0 % | 301,596 |
+| Whale-dominated | 365 | 1.824 (1.734-1.966) | 65 % | 13 | 0 | 30.9 % (whale) | 35.8 % | -45.2 % | 245,119 |
+| Opening-bell solo lighter | 60 | 1.271 (1.270-1.273) | 95 % | 31 | 21 | 22.9 % (the solo lighter) | 32.2 % | -21.3 % | 364,397 |
+| Opening-bell solo lighter | 180 | 3.315 (3.299-3.339) | 98 % | 141 | 141 | 50.3 % (the solo lighter) | 58.2 % | -69.8 % | 450,732 |
+| Opening-bell solo lighter | 365 | 17.160 (17.031-17.309) | 99 % | 326 | 326 | 65.3 % (the solo lighter) | 72.3 % | -94.2 % | 1,648,150 |
+| Everyone throws everything | 60 | 1.318 (1.316-1.319) | 100 % | 60 | 28 | 1.9 % (all in) | 2.6 % | n/a | 370,687 |
+| Everyone throws everything | 180 | 3.451 (3.429-3.472) | 100 % | 180 | 148 | 2.2 % (all in) | 2.5 % | n/a | 465,548 |
+| Everyone throws everything | 365 | 17.860 (17.706-17.999) | 100 % | 365 | 333 | 2.3 % (all in) | 2.6 % | n/a | 1,717,419 |
+
+Launch values and rules, 365 nights, medians over 8 seeds. Free supply is supply minus hearth (and pile). The largest holder is whoever holds most at that night; in brackets its behaviour in most seeds. At genesis the largest holder holds: healthy community 6.4 %, whale-dominated 21.0 %, opening-bell solo lighter 12.0 %, everyone throws everything 1.7 % of supply. Founding free riders' share: the change in their share of supply since genesis. The largest mint of any night in these runs was 1.00 % of the free supply when that night's target was set.
+
+| Night | Solo lighter's balance (EMBER) | Its share of supply | Its share of free supply | Its share of the throwers' mint so far | Its wood lost to smoke, worst seed (EMBER) |
+|---|---|---|---|---|---|
+| 60 | 291,661 | 22.9 % | 32.2 % | 67.4 % | 0 |
+| 180 | 1,666,416 | 50.3 % | 58.2 % | 73.9 % | 0 |
+| 365 | 11,225,492 | 65.3 % | 72.3 % | 76.2 % | 0 |
+
+The opening-bell solo lighter starts with 120,015 EMBER: 12.0 % of supply and 20.0 % of the free supply. Medians over 8 seeds.
+<!-- END generated:longrun -->
+
+- **The solo lighter takes over.** It starts with 12.0 % of supply and holds 22.9 % after 60 nights, 50.3 % after 180 and 65.3 % after 365. It never loses wood to smoke, because the fire is safe from the first moment of every night it plays, and its share of the throwers' mint rises from 67 % to 76 % as its balance outgrows the community's. The fire is lit on 99 % of nights, the longest streak is 326, supply ends at 17.2x, and the founding free riders keep 6 % of their share.
+- **Everyone throws everything** lights every night for a year: the streak is 365 nights and supply ends at 17.9x. No holder gains much share (the largest goes from 1.7 % to 2.3 %), but no dawn is in doubt.
+- **The healthy community** ends at 2.3x (2.2-2.4x over the seeds), lit on 67 % of nights. A founding holder who never throws keeps 43 % of its share. The largest holder stays a whale with about 6 %.
+- **Whale-dominated:** supply ends at 1.8x, and the largest holder, a whale, goes from 21.0 % to 30.9 % of supply, although the model's whale throws only part of its balance, on 60 % of nights.
+
+**What the target cap bounds, and what it does not.** The cap keeps the target at or below 25 % of the free supply. A lit night mints 4 % of the target, so at most 1 % of the free supply (the largest mint in these runs: 1.00 %), and 90 % of the mint goes to the throwers. That bounds the rate, not the level: lit at the cap every night, the free supply grows by up to 0.9 % a night, 1.009^365 = 26x in a year, plus kindling. In the stress case it grows 27x (from 600,000 to about 16.1 million EMBER). The cap bounds no holder's share. And it works for a large holder: a holder with at least 25 % of the free supply can cover every target alone. The solo lighter crosses that line before night 60; the largest whale of the whale-dominated community starts above it, with 35 % of the free supply.
+
+The behaviour models stay fixed for a year here, so these runs show the rules' arithmetic, not what people would do: a real community could race the solo lighter for the first window, and a real whale could start lighting alone. The open problem and candidate fixes for a mainnet launch are in DESIGN.md, "Before a mainnet launch". The testnet contract is locked and keeps these rules.
 
 ## Parameter sweep
 
@@ -448,7 +488,7 @@ The sweep's pick matches `sim/params.json`.
 | `early_max_bp` | 15000 | 40000 | The factor on an empty pile has to pay for the smoke risk a sniper never takes. 3.0 falls below the 1.5x edge; 4.0 is within the contract's limit of 5.0. |
 | `late_lit_bp` | 5000 | 2500 | Warmers earn a little (finding 6). |
 | `pool_windows` | new | 4 | Four windows of six hours (window table). |
-| `target_cap_bp` | new; 2500 | 2500 | Bounds the stress case at 1.32x supply in 60 nights (finding 9). |
+| `target_cap_bp` | new; 2500 | 2500 | Bounds the stress case at 1.32x supply in 60 nights (finding 9). It limits one night's mint to 1 % of the free supply, not the level: 17.9x in 365 nights. |
 | `min_throw` | new | 50 | 1 % of `target_min`: refuses dust and costs real throwers nothing. |
 | `kindling` | 500 | 250 | Halved, with the per-night cap, so that a farm can take at most 2,500 a night. |
 | `kindling_per_night` | 20 | 10 | Above the 4 arrivals a night on average. At 5, about one newcomer in ten is turned away. |
@@ -507,9 +547,9 @@ On testnet a night lasts 5 minutes, so a judge sees a dozen nights in an hour. T
 | Field | Testnet | Why |
 |---|---|---|
 | `night_ms` | 300,000 | 5 minutes. |
-| `hearth_genesis` | 900,000 EMBER | The hearth is the judges' faucet. The bots need only 100,000 between them. |
+| `hearth_genesis` | 900,000 EMBER (deployed: 3,000,000) | The hearth is the judges' faucet. The bots need only 100,000 between them. |
 | `target_start`, `target_min` | 400, 100 | Near what the demo bots throw together; the fire finds its level within the first hour. |
-| `kindling`, `kindling_per_night` | 200, 1 | A judge's kindling is about 40 % of a typical target, so a judge can decide a night. One claim per 5-minute night caps a farm at 2,400 EMBER an hour: at least 375 hours (15.6 days) to empty the hearth. |
+| `kindling`, `kindling_per_night` | 200, 1 (deployed: 4) | A judge's kindling is about 40 % of a typical target, so a judge can decide a night. One claim per 5-minute night caps a farm at 2,400 EMBER an hour: at least 375 hours (15.6 days) to empty the hearth. |
 | `min_throw` | 1 | 1 % of `target_min`. |
 | `log_keep`, `history_keep` | 48, 4,096 | The last four hours in full, and two weeks of history. |
 | `max_accounts` | 4,505 | The five bots plus every kindling the hearth can pay. |
@@ -518,7 +558,7 @@ On testnet a night lasts 5 minutes, so a judge sees a dozen nights in an hour. T
 
 A smoky testnet night burns at most one night's mint from the hearth, about 20 EMBER. Empty nights burn nothing, so a quiet weekend costs the hearth nothing either.
 
-**Demo bots.** Five accounts hold the founders' 100,000 EMBER. Each is labelled as a bot in its account name, on the page and in the README. They follow fixed, published strategies (`testnet.demo_bots` in `sim/params.json`) and do not react to judges:
+**Demo bots.** Five accounts hold the founders' 100,000 EMBER. They are implicit accounts (64 hex characters), labelled as bots on the page (`web/js/config.js`), in the README and in docs/testnet-launch.md. They follow fixed, published strategies (`testnet.demo_bots` in `sim/params.json`). They never look at who threw; the steady and the late bot look at the pile and the streak, as any player can, so a judge's wood can change what they do:
 
 <!-- BEGIN generated:testnet_bots -->
 | Bot | Behaviour | Founding balance (EMBER) | Typical throw (EMBER) | Net reward per EMBER thrown | Balance after 14 days / founding |
@@ -552,6 +592,19 @@ Kindling drain: at most 200 EMBER a night x 12 nights an hour = 2,400 EMBER an h
 - their kindling grows by about 1.5 % per EMBER thrown per night.
 
 If the bots stop, every missed night is empty. The target shrinks to `target_min` within about 15 nights (75 minutes), and nothing burns. Anyone can relight the fire afterwards. The page should call `settle()` until no night is due before it offers a throw, and the bots should run under a supervisor.
+
+**The deployed values.** The runs above use the `testnet` block of `sim/params.json`. The launch changed two of its values ([testnet-launch.md](testnet-launch.md)): `hearth_genesis` 3,000,000 instead of 900,000 and `kindling_per_night` 4 instead of 1. The same run with those values (`python3 sim/bonfire_sim.py deployed`) gives the same fire and the same judges' numbers; only the hearth is larger. `max_accounts` stayed 4,505 (the five bots and 4,500 claims), so a script that wins every claim fills the sponsored seats long before it empties this hearth.
+
+<!-- BEGIN generated:testnet_deployed -->
+| Testnet run (14 days, medians over seeds) | Lit nights | Longest streak | Target p10 / median / p90 | Supply day 1 / day 14 (x genesis) | Hearth at the end | Judge nights decided by the judge | Judges' share of the mint on lit nights | Judges' net reward per EMBER |
+|---|---|---|---|---|---|---|---|---|
+| demo bots only, deployed values | 61 % | 11 | 408 / 494 / 580 | 1.000 / 1.000 | 2,972,484 | n/a | n/a | n/a |
+| demo bots and 24 judges, deployed values | 61 % | 12 | 411 / 499 / 593 | 1.000 / 1.000 | 2,967,307 | 36 % | 18 % | +1.53 % |
+
+Kindling drain: at most 800 EMBER a night x 12 nights an hour = 9,600 EMBER an hour. A script that wins every claim empties the 3,000,000 EMBER hearth in no less than 312 hours (13.0 days), refills from lit nights not counted.
+<!-- END generated:testnet_deployed -->
+
+**On chain.** All 79 cold nights of `bonfire-coin.testnet` so far are nights 8-15 and 35-105, on launch day. From night 106 to night 308, 133 nights were lit and 70 smoked: 66 %, close to p* = 61 % and the run's 61 % (`history()`, read 2026-11-07 11:34 UTC). That is the bots running these behaviour models against the real contract: a check of the model and the contract, not evidence about people. Up to night 310, three accounts besides the bots had claimed kindling (`state().records.kindling_claims`).
 
 ## What the simulation cannot show
 
