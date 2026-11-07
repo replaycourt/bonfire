@@ -28,6 +28,8 @@ const S = {
   offset: null,
   offsetAt: 0,
   lastSettled: null,
+  replayed: false, // last night has been played back once (replayLastNight)
+  replaying: false, // the playback owns the scene's pile until its banner is up
   nightThrowers: null, // { night, list }: who sat at the fire of the night on screen
   seatHold: null,
   settling: false,
@@ -175,8 +177,10 @@ async function poll() {
     S.recent = recent ?? []
     spotThrows()
     const lastNight = state.last?.night ?? 0
-    if (S.lastSettled === null) S.lastSettled = lastNight
-    else if (lastNight > S.lastSettled) {
+    if (S.lastSettled === null) {
+      S.lastSettled = lastNight
+      setTimeout(() => replayLastNight(state.last), 1500)
+    } else if (lastNight > S.lastSettled) {
       S.lastSettled = lastNight
       onSettled(state.last)
     }
@@ -246,6 +250,52 @@ async function settleSoon() {
   } finally {
     S.settling = false
   }
+}
+
+/**
+ * The payoff at first sight: once per visit, last night plays back in about five seconds (its pile
+ * rising against its target, then dawn and the banner), so a visitor sees what a night is without
+ * waiting for this one to end. It reads state.last and night(n); nothing is sent. Cold nights have
+ * nothing to show and are skipped, and so is the playback for reduced motion.
+ */
+function replayLastNight(last) {
+  if (S.replayed || reduced || !last || !['LIT', 'SMOKED'].includes(last.outcome)) return
+  const pile = BigInt(last.pile ?? 0)
+  const target = BigInt(last.target ?? 0)
+  if (pile <= 0n || target <= 0n || S.state?.last?.night !== last.night) return
+  S.replayed = true
+  S.replaying = true
+  const w = (u) => L.fmtWhole(u, S.cfg.config.decimals)
+  scene.cheer(`Night ${last.night}, replayed in five seconds`)
+  const t0 = performance.now()
+  const step = () => {
+    const f = Math.min(1, (performance.now() - t0) / 4500)
+    const p = (pile * BigInt(Math.round(f * 1000))) / 1000n
+    const reached = p >= target
+    scene.setNight({
+      progress: f,
+      pct: Number((p * 1000n) / target) / 1000,
+      reached,
+      pileText: p > 0n ? `${w(p)} on the pile` : '',
+      pileShort: p > 0n ? w(p) : '',
+      targetText: reached ? `✓ ${w(target)} reached` : `${w(target)} needed`,
+    })
+    if (f < 1) return void requestAnimationFrame(step)
+    scene.outcome(last.outcome)
+    client
+      .night(last.night)
+      .then((n) => L.nightResult(n, S.holder, client.identity?.account, S.cfg.config.decimals, S.cfg.config.symbol, BOTS))
+      .catch(() => null)
+      .then((result) => {
+        showBanner(last, result)
+        U.setText('banner-kicker', `Replay of last night · Night ${last.night} · ${result?.word ?? last.outcome}`)
+        setTimeout(() => {
+          S.replaying = false
+          render()
+        }, 3000)
+      })
+  }
+  requestAnimationFrame(step)
 }
 
 async function onSettled(last) {
@@ -508,7 +558,7 @@ function render() {
   const me = client.identity?.account
   const f = (u) => L.fmtEmber(u, m.dec)
   const w = (u) => L.fmtWhole(u, m.dec)
-  scene.setNight({
+  if (!S.replaying) scene.setNight({
     progress: m.progress,
     pct: m.pct,
     reached: m.reached,
