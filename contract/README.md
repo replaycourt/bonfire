@@ -335,7 +335,8 @@ and, inside them, the function bodies and data byte ranges.
 |---|---|
 | the author's Mac, macOS 15 x86_64 (a 4-core Intel Mac): cold builds into two different target directories | byte-identical to the code on chain |
 | the same Mac, from a copy at another path, with the cargo and rustup homes at other paths | byte-identical to the code on chain |
-| CI job `wasm` on GitHub's `macos-15-intel`, `ubuntu-latest` (Linux x86_64) and `macos-15` (arm64), every push | the same bytes on all three (`f476f6a7…` on 2026-11-07), but not the code on chain; each job reports the difference section by section and uploads its wasm |
+| CI job `wasm` on GitHub's `macos-15-intel`, `ubuntu-latest` (Linux x86_64) and `macos-15` (arm64), every push | each job compares its rebuild with the chain section by section and uploads its wasm; until 2026-11-07 all three built `f476f6a7…`, which differed from the chain only through a variable the job set (below) |
+| the author's Mac with `CARGO_NEAR_VERSION=0.22.0` exported to the old `build.sh`, as the CI job had it | `f476f6a7…`, CI's bytes |
 
 **Why Linux differed, and what the host pin fixes.** Before the pin, CI built `5d901928…` on Linux
 in every run, not the deployed `c8bdff7e…`. One cause is cargo, not the source: cargo hashes the
@@ -350,13 +351,20 @@ unchanged. `build.sh` now pins the host cargo sees to `x86_64-apple-darwin`, the
 with a small `RUSTC_WRAPPER` that rewrites that one line of `rustc -vV`; proc macros and build
 scripts still run natively, and the deployed code stays as it is.
 
-**What is not explained.** With the pin, GitHub's Linux, Intel Mac and arm64 Mac runners build the
-same bytes, so neither the host nor the platform builds of the tools are the rest of the cause; the
-cargo-near on the author's Mac is the same release binary CI uses. Those bytes still differ from the
-deployed code, built on the author's Intel Mac: the same exports and ABI, but other function bodies
-and data offsets (the job summary lists them). The cause on the author's machine is still open.
-Until it is found, the only rebuild that gives the bytes on chain is the author's Mac, and CI's
-rebuild shows a reproducible build of this source, not the deployed one.
+**The rest: a variable the CI job set for itself.** With the pin, GitHub's Linux, Intel Mac and
+arm64 Mac runners built the same bytes, `f476f6a7…`, still not the deployed code. The code that
+runs was not the difference. The ABI that cargo-near embeds in the wasm (zstd-compressed, returned by
+`__contract_abi`) said `"builder": "cargo-near 0.22.0"` where the deployed one says
+`"cargo-near cargo-near-build 0.11.5"`, and was identical otherwise. cargo-near takes that field from
+the environment variable `CARGO_NEAR_VERSION` when it is set (it is meant to pass the version into
+nested builds), and the CI job had set `CARGO_NEAR_VERSION=0.22.0` to name the release it downloads.
+The compressed ABI got 8 bytes shorter, so every later data address moved by 8, and with them the
+globals and the function bodies that load those addresses. On the author's Mac, the same variable
+turns the deployed bytes into CI's: `CARGO_NEAR_VERSION=0.22.0` with the old `build.sh` builds
+`f476f6a7…`. `build.sh` now unsets every `CARGO_NEAR_*` and `NEP330_*` variable before it calls
+cargo-near (NEP330_LINK would likewise change the NEP-330 metadata), and the CI job names the
+release `CARGO_NEAR_RELEASE`. With `CARGO_NEAR_VERSION=0.22.0` still exported, `./build.sh --check`
+now builds `c8bdff7e…`, the deployed code.
 
 **Not covered.** The build uses cargo-near's `non-reproducible-wasm` mode with pinned inputs (Rust
 1.95.0 from `rust-toolchain.toml`, the cargo-near 0.22.0 release binary, `Cargo.lock`), not
