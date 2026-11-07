@@ -246,6 +246,9 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
 .how-list { margin: 0 0 12px; padding-left: 1.2em; display: grid; gap: 8px; }
 .how-list b { color: var(--ink-1); }
 .foot { max-width: 1180px; margin: 0 auto; padding: 26px 24px 70px; color: var(--ink-3); font-size: 0.82rem; }
+.foot span { display: block; }
+.foot span + span { margin-top: 6px; }
+.foot a { color: var(--ink-2); }
 
 /* ---- drawer, toast ---- */
 .drawer-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(4, 3, 8, 0.55); }
