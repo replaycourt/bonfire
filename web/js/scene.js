@@ -667,7 +667,8 @@ export class Scene {
     if (pass === 'lower' && this.pileText && !this.cold && this.roar <= 0 && this.smokeOut <= 0) {
       const y = clamp(this.pileTop(), this.targetY() + 2 * u, by - 22 * u)
       const x = cx - 150 * u - 10
-      const text = x - this.measure(this.pileText, 12) - 22 > 4 ? this.pileText : this.pileShort
+      const fits = (t) => x - this.measure(t, 12) - 22 > 4
+      const text = [this.pileText, `${this.pileShort} wood`].find(fits) ?? this.pileShort
       this.pill(text, x, y, '#2a1a12', '#ffe2b0', 12, 'right')
     }
   }
