@@ -70,8 +70,9 @@ got=$(query "{\"request_type\":\"view_access_key_list\",\"finality\":\"final\",\
   | check 'out = "%d access keys" % len(r["keys"])')
 report "1. $CONTRACT has no access keys" "$got" "0 access keys"
 
-# 2. The deployed code is the build in this repository: the chain's code hash (base58 of the
-#    wasm's sha256) equals contract/WASM_SHA256.
+# 2. The deployed code is the wasm this repository records: the chain's code hash (base58 of the
+#    wasm's sha256) equals contract/WASM_SHA256. That this hash is the build of the source is shown
+#    by a rebuild (contract/build.sh --check, contract/compare-wasm.py), not by this check.
 got=$(query "{\"request_type\":\"view_account\",\"finality\":\"final\",\"account_id\":\"$CONTRACT\"}" | check '
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 n = 0

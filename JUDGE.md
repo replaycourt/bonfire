@@ -56,7 +56,7 @@ All 6 checks passed.
 | 5 | Every function-call key on `bonfire-gas.testnet` may only call `act`, `collect` and `settle`; its one full-access key is not in the repository. |
 | 6 | The word on the token's icon (`LIT ×n`, `SMOKED` or `COLD`) is the last settled night's outcome from `state()`, both read at the same block. The word in brackets changes with the fire. |
 
-The same checks by hand, as curl one-liners, are in the README: [Check it without an account](README.md#check-it-without-an-account). `cd contract && ./build.sh --check` rebuilds the wasm and compares it with `contract/WASM_SHA256`; it needs cargo-near 0.22 and the toolchain pinned in `contract/rust-toolchain.toml`. A cold rebuild on a 4-core laptop (macOS, x86_64) took about 5 minutes and matched.
+The same checks by hand, as curl one-liners, are in the README: [Check it without an account](README.md#check-it-without-an-account). Check 2 compares two numbers; that `contract/WASM_SHA256` is the build of this source is shown by a rebuild. `cd contract && ./build.sh --check` rebuilds the wasm and compares it with `contract/WASM_SHA256`, and `python3 compare-wasm.py target/near/bonfire.wasm --account bonfire-coin.testnet` compares it with the code on chain, section by section; they need cargo-near 0.22 and the toolchain pinned in `contract/rust-toolchain.toml`. Cold rebuilds on a 4-core Intel Mac (macOS 15, x86_64) took about 20 minutes and were byte-identical to the chain. CI repeats the rebuild on every push: on macOS x86_64 it must be byte-identical to the code on chain, on Linux and macOS arm64 it reports where the bytes differ. Details: [contract/README.md](contract/README.md#rebuilding-the-deployed-wasm).
 
 ## 3. Where each claim lives
 

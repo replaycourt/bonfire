@@ -314,9 +314,54 @@ over 365 nights:
 
 - No keys: `{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"<contract>"}}`
   returns `"keys":[]`.
-- The code: `view_account` returns `code_hash`, the base58 form of the sha256 in `WASM_SHA256`
-  (`./build.sh --check` rebuilds and compares).
+- The code: `view_account` returns `code_hash`, the base58 form of the sha256 in `WASM_SHA256`.
+  That this is the build of this source is shown only by rebuilding it (next section).
 - The parameters: `config()`. The books: `audit()`.
+
+## Rebuilding the deployed wasm
+
+`WASM_SHA256` is a number written next to the source; on its own it proves nothing about it. The
+evidence is a rebuild that gives the bytes the chain holds:
+
+    ./build.sh --check
+    python3 compare-wasm.py target/near/bonfire.wasm --account bonfire-coin.testnet
+
+`compare-wasm.py` (Python standard library only) fetches the deployed code with the RPC `view_code`
+query, checks it against the chain's code hash and compares it with the local wasm section by
+section. It exits 0 only if the two are byte-identical; otherwise it names the sections that differ
+and, inside them, the function bodies and data byte ranges.
+
+| Where | Result |
+|---|---|
+| macOS 15 x86_64 (a 4-core Intel Mac): cold builds into two different target directories | byte-identical to the code on chain |
+| the same Mac, from a copy at another path, with the cargo and rustup homes at other paths | byte-identical to the code on chain |
+| CI job `wasm` on GitHub's `macos-15-intel`, every push | must be byte-identical to the code it reads from the chain, or the run fails |
+| CI job `wasm` on `ubuntu-latest` (Linux x86_64) and `macos-15` (arm64) | reported in the job summary with the section comparison, the wasm uploaded as an artifact; a difference does not fail the run |
+
+**Why Linux differed, and what the host pin fixes.** Before the pin, CI built `5d901928…` on Linux
+in every run, not the deployed `c8bdff7e…`. One cause is cargo, not the source: cargo hashes the
+`host:` line of `rustc -vV` into the `-C metadata` of every proc macro and build script and mixes
+those hashes into the crate hashes of everything that depends on them
+([rust-lang/cargo#8140](https://github.com/rust-lang/cargo/issues/8140)). The contract's crates
+therefore get other symbol hashes on another host, and rustc lays out the code by symbol name. On
+the same Mac, `PINNED_HOST=x86_64-unknown-linux-gnu ./build.sh --check`, which only tells cargo
+it runs on Linux, gives `951f95c1…`: 700 functions instead of 704, only 60 function bodies identical
+at the same position, imports, element table and string data in another order, the embedded ABI
+unchanged. `build.sh` now pins the host cargo sees to `x86_64-apple-darwin`, the deployed build's,
+with a small `RUSTC_WRAPPER` that rewrites that one line of `rustc -vV`; proc macros and build
+scripts still run natively, and the deployed code stays as it is.
+
+**What is not explained.** `951f95c1…` is not the Linux hash either. The rest lies in the Linux
+builds of the tools (rustc with its LLVM and wasm linker, or cargo-near with its built-in wasm-opt
+pass and ABI extraction); which one could not be narrowed down without a Linux machine. CI now
+uploads the Linux wasm and prints its section comparison, so the first run with the pin shows what
+is left. Until a Linux run comes out byte-identical, the rebuild is established on macOS x86_64
+only.
+
+**Not covered.** The build uses cargo-near's `non-reproducible-wasm` mode with pinned inputs (Rust
+1.95.0 from `rust-toolchain.toml`, the cargo-near 0.22.0 release binary, `Cargo.lock`), not
+cargo-near's Docker-based reproducible mode, so the contract's NEP-330 metadata says
+`build_info: null` and names no source. Windows is untested.
 
 ## Build and test
 
@@ -327,8 +372,9 @@ over 365 nights:
 
 `build.sh` needs cargo-near 0.22, the toolchain pinned in `rust-toolchain.toml`, `strings`,
 `python3` and `sha256sum` or `shasum`. It remaps every machine path in the wasm to a neutral prefix,
-fails if `/Users/`, `/home/` or the user name remain, and fails if the wasm exports anything but the
-methods above (plus `contract_source_metadata` and the embedded ABI).
+pins the host triple cargo hashes (see above), fails if `/Users/`, `/home/` or the user name remain,
+and fails if the wasm exports anything but the methods above (plus `contract_source_metadata` and
+the embedded ABI).
 
 | Test file | Covers |
 |---|---|

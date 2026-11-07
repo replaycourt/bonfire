@@ -104,7 +104,8 @@ curl -s https://test.rpc.fastnear.com -H 'Content-Type: application/json' -d '{"
 # No EMBER appears or vanishes. Expect: "balanced":true and "ledger":true
 curl -s https://test.rpc.fastnear.com -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"bonfire-coin.testnet","method_name":"audit","args_base64":"e30="}}' | python3 -c 'import json,sys; print(bytes(json.load(sys.stdin)["result"]["result"]).decode())'
 
-# The deployed code is the build in this repository. Expect: two equal lines
+# The deployed code is the wasm whose sha256 this repository records (contract/WASM_SHA256); that
+# this is the build of the source is shown by the rebuild under Build below. Expect: two equal lines
 curl -s https://test.rpc.fastnear.com -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"bonfire-coin.testnet"}}' | python3 -c 'import json,sys,functools; s=json.load(sys.stdin)["result"]["code_hash"]; a="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"; print(functools.reduce(lambda n,c: n*58+a.index(c), s, 0).to_bytes(32,"big").hex())'; cat contract/WASM_SHA256
 
 # Every launch parameter, fixed at init. Expect: night_ms 300000, kindling_per_night 4, the five founders
@@ -172,9 +173,9 @@ cd contract && cargo test               # 121 tests; cold build about 8.5 minute
 scripts/judge-checks.sh                 # 6 read-only checks of the live contract; about 5 s
 ```
 
-CI runs the three test suites on every push, rebuilds the wasm on Linux and writes in its job summary whether the hash matches `contract/WASM_SHA256`. Node 22 or newer, no install. `cargo test` uses the toolchain pinned in `contract/rust-toolchain.toml` (Rust 1.95.0); the tests run in the SDK's mock VM, with no sandbox and no network.
+CI runs the three test suites on every push and rebuilds the wasm on macOS x86_64, where it must be byte-identical to the code it reads from the chain, and on Linux and macOS arm64, where it reports the difference section by section. Node 22 or newer, no install. `cargo test` uses the toolchain pinned in `contract/rust-toolchain.toml` (Rust 1.95.0); the tests run in the SDK's mock VM, with no sandbox and no network.
 
-**Build.** `cd contract && ./build.sh --check` rebuilds the wasm with cargo-near 0.22 and compares its sha256 with `contract/WASM_SHA256`, the code hash on chain. It also fails if the wasm carries machine paths or exports an unexpected method. A cold rebuild on a 4-core laptop (macOS, x86_64) took about 5 minutes and matched.
+**Build.** `cd contract && ./build.sh --check` rebuilds the wasm with cargo-near 0.22 and compares its sha256 with `contract/WASM_SHA256`, the code hash on chain. It also fails if the wasm carries machine paths or exports an unexpected method. `python3 contract/compare-wasm.py contract/target/near/bonfire.wasm --account bonfire-coin.testnet` compares the result with the code on chain, section by section. Cold rebuilds on a 4-core Intel Mac (macOS 15, x86_64) took about 20 minutes and were byte-identical to the chain; on Linux the same source does not yet give the same bytes. What is reproduced where, and why: [contract/README.md](contract/README.md#rebuilding-the-deployed-wasm).
 
 **Your own deployment.** `scripts/setup-gas-pool.mjs` adds relay keys to a gas account, and `scripts/deploy.mjs <account> [--lock]` deploys with the account's key from the NEAR CLI's legacy keychain, initialises with the testnet values, verifies, and with `--lock` deletes every access key. Both are described in [docs/testnet-stage.md](docs/testnet-stage.md).
 
