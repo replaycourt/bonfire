@@ -1,7 +1,7 @@
 // The "How it works" text, built from config() alone (no DOM needed for it).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { howHtml } from '../js/ui.js'
+import { howHtml, pctChange } from '../js/ui.js'
 
 const E = (n) => (BigInt(n) * 10n ** 18n).toString()
 const cfg = (over = {}) => ({
@@ -48,4 +48,11 @@ test('proof: long values sit in a cell that may wrap (no row runs out of the dra
   const { readFileSync } = await import('node:fs')
   const css = readFileSync(new URL('../css/style.css', import.meta.url), 'utf8')
   assert.match(css, /\.proof-list li > :last-child \{ min-width: 0; overflow-wrap: anywhere; \}/)
+})
+
+test('the supply axis reads as the change since the first night, small moves included', () => {
+  assert.equal(pctChange(1_000_180, 1_000_000), '+0.018 %')
+  assert.equal(pctChange(1_000_000, 1_000_000), '±0 %')
+  assert.equal(pctChange(999_000, 1_000_000), '−0.10 %')
+  assert.equal(pctChange(1_050_000, 1_000_000), '+5.00 %')
 })

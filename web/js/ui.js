@@ -128,6 +128,15 @@ export function renderWindows(el, win, now, { decimals }) {
  * Supply after every settled night: one series, a 2 px line over a 10 % wash, three hairline
  * gridlines, a crosshair and a tooltip on hover and on arrow keys.
  */
+/** "+0.018 %": the change of v against base, with enough decimals to tell small moves apart. */
+export function pctChange(v, base) {
+  const pct = base ? ((v - base) / base) * 100 : 0
+  const a = Math.abs(pct)
+  const digits = a === 0 ? 0 : a < 0.1 ? 3 : a < 10 ? 2 : 1
+  const text = a.toFixed(digits)
+  return `${Number(text) === 0 ? '±' : pct > 0 ? '+' : '−'}${text} %`
+}
+
 export function renderChart(host, series, { symbol }) {
   host.replaceChildren()
   if (series.length < 2) {
@@ -139,10 +148,11 @@ export function renderChart(host, series, { symbol }) {
   }
   const W = Math.max(280, host.clientWidth || 560)
   const H = Math.max(190, Math.min(320, host.clientHeight || 190))
-  // a supply that moves by a few per mille needs whole numbers on the axis to tell its ticks apart
-  const fine = Math.max(...series.map((d) => d.supply)) - Math.min(...series.map((d) => d.supply)) < Math.max(...series.map((d) => d.supply)) * 0.02
-  const tickText = (v) => (fine ? fmtInt(Math.round(v)) : compactNumber(v))
-  const pad = { l: fine ? 74 : 58, r: 14, t: 14, b: 26 }
+  // The axis is zoomed to the line, so it is labelled as the change since the first night shown: a
+  // supply that moved by a few per mille must not look like a swing of half its size.
+  const base = series[0].supply
+  const tickText = (v) => pctChange(v, base)
+  const pad = { l: 70, r: 14, t: 14, b: 26 }
   const xs = series.map((d) => d.night)
   const ys = series.map((d) => d.supply)
   let lo = Math.min(...ys)
@@ -193,7 +203,7 @@ export function renderChart(host, series, { symbol }) {
     const v = document.createElement('b')
     v.textContent = `${fmtInt(Math.round(d.supply))} ${symbol}`
     const s = document.createElement('span')
-    s.textContent = `Night ${d.night} · ${d.outcome}`
+    s.textContent = `Night ${d.night} · ${d.outcome} · ${pctChange(d.supply, base)} since night ${xs[0]}`
     tip.append(v, s)
     tip.hidden = false
     const scale = host.clientWidth / W || 1
@@ -233,12 +243,6 @@ export function renderChart(host, series, { symbol }) {
     for (const v of [d.night, d.outcome, fmtInt(Math.round(d.supply))]) row.insertCell().textContent = String(v)
   }
   host.appendChild(table)
-}
-
-function compactNumber(v) {
-  if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 3).replace(/\.?0+$/, '') + 'M'
-  if (v >= 1e4) return Math.round(v / 1e3) + 'k'
-  return fmtInt(Math.round(v))
 }
 
 // ---- the ledger ---------------------------------------------------------------------------------
