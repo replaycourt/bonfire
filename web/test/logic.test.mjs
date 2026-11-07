@@ -339,6 +339,100 @@ test('headline says what tonight needs', () => {
   assert.equal(h([E(300), 0n, 0n, 0n], 1_950_000).big, 'Dawn')
 })
 
+// ---- a first visit, the streak at risk, the player's own tally --------------------------------------
+
+const newcomer = { registered: false, balance: '0', credited: '0', pending: '0', wood_night: null, wood: '0', wood_by_window: [], weight: '0', nonce: 0, may_take_kindling: true, held: false, kindled: false }
+
+test('intro: the three steps follow the player from kindling to the throw to dawn', () => {
+  const at = (h, over = {}, now = 1_750_000, pendingWood) => L.introSteps(L.deriveModel({ cfg, state: state(undefined, over), holder: h, nowMs: now }), pendingWood)
+  const first = at(newcomer)
+  assert.equal(first.at, 1)
+  assert.deepEqual(first.steps.map((s) => s.state), ['now', 'next', 'next'])
+  assert.deepEqual(first.steps.map((s) => s.title), ['Get kindling', 'Throw before dawn', 'See it catch at dawn'])
+  assert.equal(first.steps[0].sub, 'free, no wallet, no sign-up')
+  assert.equal(first.steps[2].sub, 'dawn in 2:30', 'the third step counts down to dawn')
+  // kindling arrived: throw next
+  const kindled = at({ ...newcomer, registered: true, balance: E(200).toString(), credited: E(200).toString(), held: true, kindled: true, may_take_kindling: false })
+  assert.equal(kindled.at, 2)
+  assert.deepEqual(kindled.steps.map((s) => s.state), ['done', 'now', 'next'])
+  // wood on tonight's pile, or a throw still on its way: wait for dawn
+  const threw = at(holder({ wood_night: 3, wood: E(50).toString(), wood_by_window: [{ window: 1, wood: E(50).toString() }] }))
+  assert.deepEqual(threw.steps.map((s) => s.state), ['done', 'done', 'now'])
+  assert.equal(at(holder(), {}, 1_750_000, E(25)).at, 3)
+  // tonight's kindling is gone: the first step says when the next claim opens
+  assert.equal(at(newcomer, { kindling_left_tonight: 0 }).steps[0].sub, 'handed out tonight; the next claim opens at dawn')
+  assert.equal(at(newcomer, {}, 1_900_000).steps[2].sub, 'dawn is breaking')
+})
+
+test('streak at risk: only in the last quarter, with a streak running and the pile short', () => {
+  const risk = (woods, over = {}, now = 1_850_000) => L.streakRisk(L.deriveModel({ cfg, state: state(woods, over), holder: holder(), nowMs: now }))
+  // night 3 runs 1,600,000 to 1,900,000; its last quarter starts at 1,825,000
+  const r = risk([E(300), 0n, 0n, 0n])
+  assert.equal(r.text, 'The streak of 2 nights ends at dawn unless 100 more wood lands.')
+  assert.equal(r.need, 100n)
+  assert.equal(risk([E(300), 0n, 0n, 0n], { streak: 1 }).text, 'The streak of 1 night ends at dawn unless 100 more wood lands.')
+  // the wood is rounded up: 99.6 short needs 100
+  assert.equal(risk([E('300.4'), 0n, 0n, 0n]).need, 100n)
+  assert.equal(risk([0n, 0n, 0n, 0n]).need, 400n, 'an empty pile ends the streak too')
+  assert.equal(risk([E(300), 0n, 0n, 0n], {}, 1_824_999), null, 'not before the last quarter')
+  assert.equal(risk([E(300), 0n, 0n, 0n], { streak: 0 }), null, 'no streak, nothing at risk')
+  assert.equal(risk([E(400), 0n, 0n, 0n]), null, 'the target is reached')
+  assert.equal(risk([E(300), 0n, 0n, 0n], {}, 1_900_000), null, 'dawn has come')
+})
+
+test('credit from night(n): the contract credit_of numbers of tests/ritual.rs', () => {
+  // a lit night: 12,000 / 8,000 / 4,000 wood on a 20,000 target; 4 % minted, 10 % of it to the hearth
+  const ws = L.windowWeights([12_000n, 8_000n, 4_000n, 0n], 20_000n, 40_000, 2_500)
+  const lit = { night: 7, outcome: 'LIT', pile: '24000', minted: '800', hearth_cut: '80', burned: '0', hearth_burned: '0', windows: ws.map((w, i) => ({ window: i, wood: w.wood.toString(), weight: w.weight.toString() })) }
+  const share = L.expectedReward({ pool: 720n, myWeight: 93_000_000n, totalWeight: 510_000_000n })
+  assert.equal(share, 131n)
+  assert.equal(L.creditFromNight(lit, [[0, '3000']]), 3_131n)
+  assert.equal(L.creditFromNight(lit, [[0, '12000'], [1, '8000'], [2, '4000']]), 24_720n, 'all the wood gets the whole pool')
+  // a smoky night: 3 % of 13,333 burns (399); 10,000 of it gets 9,700 back
+  const smoked = { night: 8, outcome: 'SMOKED', pile: '13333', minted: '0', hearth_cut: '0', burned: '404', hearth_burned: '5', windows: [] }
+  assert.equal(L.creditFromNight(smoked, [[1, '10000']]), 9_700n)
+  assert.equal(L.creditFromNight(null, [[1, '10']]), 10n)
+})
+
+test('tally: what the page saw of the player, settled by holder(me) or night(n)', () => {
+  const by = (w, a) => [{ window: w, wood: E(a).toString() }]
+  // night 3 is open: the wood is noted, nothing is settled yet
+  let t = L.tallySee(null, holder({ wood_night: 3, wood: E(50).toString(), wood_by_window: by(1, 50) }), 3)
+  assert.deepEqual(t.nights[3], { wood: E(50).toString(), by: [[1, E(50).toString()]] })
+  assert.deepEqual(L.tallyOpen(t, 3), [])
+  assert.deepEqual(L.tallyOpen(t, 4), [3])
+  assert.equal(L.tallySummary(t, D, 'EMBER'), null, 'no settled night yet')
+  // dawn: holder(me) shows what night 3 owes
+  t = L.tallySee(t, holder({ wood_night: 3, wood: E(50).toString(), wood_by_window: by(1, 50), pending: E('53.2').toString() }), 4, (n) => (n === 3 ? 'LIT' : null))
+  assert.equal(t.nights[3].out, 'LIT')
+  assert.equal(t.nights[3].credit, E('53.2').toString())
+  assert.equal(L.tallySummary(t, D, 'EMBER').text, 'You helped light a fire · 50 wood thrown · +3.2 new EMBER')
+  // a settled night is not rewritten, and a holder without wood changes nothing
+  assert.equal(L.tallySee(t, holder({ wood_night: 3, wood: E(50).toString(), pending: E(99).toString() }), 4).nights[3].credit, E('53.2').toString())
+  assert.deepEqual(L.tallySee(t, holder(), 4), t)
+  // night 5 was collected before the page saw it: night(5) settles it
+  t = L.tallySee(t, holder({ wood_night: 5, wood: E(100).toString(), wood_by_window: by(0, 100) }), 5)
+  assert.deepEqual(L.tallyOpen(t, 6), [5])
+  const smoke = { night: 5, outcome: 'SMOKED', pile: E(200).toString(), burned: E(7).toString(), hearth_burned: E(1).toString(), minted: '0', hearth_cut: '0', windows: [] }
+  t = L.tallyResolve(t, 5, smoke)
+  assert.equal(t.nights[5].credit, E(97).toString(), '3 % of the pile burned')
+  // night 6 is past what night(n) keeps: the outcome stays, the payout is unknown
+  t = L.tallySee(t, holder({ wood_night: 6, wood: E(20).toString(), wood_by_window: by(2, 20) }), 6)
+  t = L.tallyResolve(t, 6, null, 'LIT')
+  assert.deepEqual([t.nights[6].out, t.nights[6].credit], ['LIT', null])
+  const s = L.tallySummary(JSON.parse(JSON.stringify(t)), D, 'EMBER')
+  assert.deepEqual([s.nights, s.lit, s.wood, s.earned, s.lost], [3, 2, E(170), E('3.2'), E(3)])
+  assert.equal(s.text, 'You helped light 2 of 3 fires · 170 wood thrown · +3.2 new EMBER · 3 burned')
+  // only smoke
+  const lone = L.tallyResolve(L.tallySee(null, holder({ wood_night: 5, wood: E(100).toString(), wood_by_window: by(0, 100) }), 5), 5, smoke)
+  assert.equal(L.tallySummary(lone, D, 'EMBER').text, 'Your fire went up in smoke · 100 wood thrown · 3 burned')
+  // the oldest nights drop out beyond TALLY_KEEP
+  let many = null
+  for (let n = 1; n <= L.TALLY_KEEP + 5; n++) many = L.tallySee(many, holder({ wood_night: n, wood: '1', wood_by_window: [{ window: 0, wood: '1' }] }), n)
+  assert.equal(Object.keys(many.nights).length, L.TALLY_KEEP)
+  assert.ok(!many.nights[5] && many.nights[6] && many.nights[L.TALLY_KEEP + 5])
+})
+
 // ---- outcomes and history -------------------------------------------------------------------------
 
 test('outcome words as the coin face writes them; the strip counts the streak', () => {

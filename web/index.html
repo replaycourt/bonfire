@@ -46,6 +46,7 @@
           <b class="countdown" id="countdown">–:––</b>
           <span class="until" id="until">until dawn</span>
           <span class="quarters" id="quarters" role="img" aria-label="Quarters of the night"></span>
+          <span class="risk" id="risk" hidden></span>
         </div>
         <p class="rules"><b>Throw wood before dawn.</b> <span>Enough wood: everyone gets their wood back plus new EMBER.</span> <span>Too little: some of it goes up in smoke.</span> <span>Wood on a cold pile earns most.</span></p>
       </div>
@@ -102,10 +103,23 @@
       </button>
       <div class="throw-row" id="throw-row" role="group" aria-label="Throw wood"></div>
       <p class="throw-hint" id="throw-hint"></p>
+      <section class="intro" id="intro" aria-labelledby="intro-title" hidden>
+        <div class="intro-head">
+          <h3 id="intro-title">A whole night in five minutes</h3>
+          <button class="intro-close" id="intro-close" type="button" aria-label="Hide these steps">×</button>
+        </div>
+        <ol class="intro-steps" id="intro-steps">
+          <li><span class="intro-num" aria-hidden="true">1</span><b>Get kindling</b><span class="intro-sub">free, no wallet, no sign-up</span><span class="sr-only"></span></li>
+          <li><span class="intro-num" aria-hidden="true">2</span><b>Throw before dawn</b><span class="intro-sub">early wood counts most</span><span class="sr-only"></span></li>
+          <li><span class="intro-num" aria-hidden="true">3</span><b>See it catch at dawn</b><span class="intro-sub">in under five minutes</span><span class="sr-only"></span></li>
+        </ol>
+        <p class="intro-foot">Nobody can change the rules. <button class="intro-link" id="intro-proof" type="button">See the proof</button></p>
+      </section>
       <div class="mine" id="mine">
         <div><span>Your wood tonight</span><b id="my-wood">0</b></div>
         <div><span>If it catches</span><b id="my-share">–</b></div>
       </div>
+      <p class="my-tally" id="my-tally" title="Counted by this page from what it saw of your account" hidden></p>
       <p class="note" id="note" hidden></p>
       <p class="status" id="status" aria-live="polite"></p>
     </aside>

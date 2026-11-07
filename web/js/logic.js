@@ -494,6 +494,142 @@ export function headline(m) {
   return { big: `${gap === '0' ? 'Under 1' : gap} ${sym}`, small: 'more wood needed before dawn' }
 }
 
+// ---- a first visit, the streak at risk, the player's own tally ----------------------------------
+
+/**
+ * The three steps of a first night, as the intro lists them: get kindling, throw before dawn, see
+ * the fire catch at dawn. Each step is 'done', 'now' or 'next'; `at` is the step the player is on.
+ * `pendingWood` is wood thrown from this page that the views do not show yet.
+ */
+export function introSteps(m, pendingWood = 0n) {
+  const threw = m.myWood + big(pendingWood) > 0n
+  const has = threw || m.balance > 0n
+  const at = !has ? 1 : !threw ? 2 : 3
+  const kindle = !has && !m.kindle.can && m.kindle.why === 'gone' ? 'handed out tonight; the next claim opens at dawn' : 'free, no wallet, no sign-up'
+  const steps = [
+    { title: 'Get kindling', sub: kindle },
+    { title: 'Throw before dawn', sub: 'early wood counts most' },
+    { title: 'See it catch at dawn', sub: m.due ? 'dawn is breaking' : `dawn in ${fmtCountdown(m.msLeft)}` },
+  ].map((s, i) => ({ ...s, n: i + 1, state: i + 1 < at ? 'done' : i + 1 === at ? 'now' : 'next' }))
+  return { at, steps }
+}
+
+/**
+ * Late in the night (its last quarter), with a streak running and the pile short of the target:
+ * the line that says what dawn ends unless more wood lands. The wood is rounded up to whole EMBER,
+ * since less would not be enough. Null at any other time.
+ */
+export function streakRisk(m) {
+  if (!m || m.due || m.reached || !(m.streak > 0) || m.gap <= 0n) return null
+  const w = m.windows
+  if (!w || w.due || w.current < w.count - 1) return null
+  const unit = pow10(m.dec)
+  const need = (m.gap + unit - 1n) / unit
+  const nights = m.streak === 1 ? '1 night' : `${m.streak} nights`
+  return { streak: m.streak, need, text: `The streak of ${nights} ends at dawn unless ${fmtInt(need)} more wood lands.` }
+}
+
+/** How many of its nights the page keeps in a player's tally. */
+export const TALLY_KEEP = 200
+
+const tallyBy = (holder) => (holder.wood_by_window ?? []).map((w) => [Number(w.window), big(w.wood).toString()])
+
+/**
+ * The player's own tally, from what this page saw. The contract keeps no history per account, so
+ * the page notes the wood of each night it sees in holder(me) and, once that night is settled and
+ * not yet collected, what it pays (`pending`). `outcomeOf(n)` names a settled night's outcome where
+ * the page knows it. Returns the tally: `{ nights: { [n]: { wood, by, out?, credit? } } }`, amounts
+ * as decimal strings, so it can be kept as JSON.
+ */
+export function tallySee(tally, holder, openNight, outcomeOf = () => null) {
+  const nights = { ...(tally?.nights ?? {}) }
+  const n = holder?.wood_night
+  if (n == null || big(holder.wood) <= 0n || nights[n]?.out) return { nights }
+  const rec = { wood: big(holder.wood).toString(), by: tallyBy(holder) }
+  if (n < openNight && big(holder.pending) > 0n) {
+    const credit = big(holder.pending)
+    rec.out = outcomeOf(n) ?? (credit >= big(holder.wood) ? 'LIT' : 'SMOKED')
+    rec.credit = credit.toString()
+  }
+  nights[n] = rec
+  const keep = Object.keys(nights).map(Number).sort((a, b) => b - a).slice(0, TALLY_KEEP)
+  return { nights: Object.fromEntries(keep.map((k) => [k, nights[k]])) }
+}
+
+/** Settled nights in the tally whose payout the page has not seen, oldest first. */
+export function tallyOpen(tally, openNight) {
+  return Object.entries(tally?.nights ?? {})
+    .filter(([n, r]) => Number(n) < openNight && !r.out)
+    .map(([n]) => Number(n))
+    .sort((a, b) => a - b)
+}
+
+/**
+ * What a settled night credits wood thrown in it (`by`: [[window, wood]]), from night(n), as the
+ * contract's credit_of computes it: on a lit night the wood plus its share of the throwers' mint by
+ * weight, on a smoky night the wood's share of what the smoke left.
+ */
+export function creditFromNight(view, by) {
+  const wood = (by ?? []).reduce((s, [, a]) => s + big(a), 0n)
+  if (!view || wood === 0n) return wood
+  if (view.outcome === 'LIT') {
+    const ws = view.windows ?? []
+    const total = ws.reduce((s, w) => s + big(w.weight), 0n)
+    let mine = 0n
+    for (const [i, a] of by) {
+      const w = ws.find((x) => Number(x.window) === Number(i))
+      if (w && big(w.wood) > 0n) mine += (big(w.weight) * big(a)) / big(w.wood)
+    }
+    const pool = big(view.minted) - big(view.hearth_cut)
+    return wood + (total > 0n ? (pool * mine) / total : 0n)
+  }
+  if (view.outcome === 'SMOKED') {
+    const pile = big(view.pile)
+    const back = pile - (big(view.burned) - big(view.hearth_burned))
+    return pile > 0n ? (wood * back) / pile : 0n
+  }
+  return wood
+}
+
+/**
+ * Settles one night of the tally from night(n). Without the view (the contract keeps only the last
+ * `log_keep` nights) the night keeps its outcome where known, and its payout stays unknown.
+ */
+export function tallyResolve(tally, n, view, outcome = null) {
+  const nights = { ...(tally?.nights ?? {}) }
+  const rec = nights[n]
+  if (!rec || rec.out) return { nights }
+  if (view && view.night === n && view.outcome !== 'OPEN') nights[n] = { ...rec, out: view.outcome, credit: creditFromNight(view, rec.by).toString() }
+  else nights[n] = { ...rec, out: outcome ?? 'UNKNOWN', credit: null }
+  return { nights }
+}
+
+/** The tally in one line, from its settled nights; null before the first of them. */
+export function tallySummary(tally, decimals, symbol) {
+  const rows = Object.values(tally?.nights ?? {}).filter((r) => r.out)
+  if (!rows.length) return null
+  let lit = 0
+  let wood = 0n
+  let earned = 0n
+  let lost = 0n
+  for (const r of rows) {
+    const w = big(r.wood)
+    wood += w
+    if (r.out === 'LIT') lit++
+    if (r.credit == null) continue
+    const c = big(r.credit)
+    if (c > w) earned += c - w
+    else lost += w - c
+  }
+  const f = (u) => fmtEmber(u, decimals)
+  const n = rows.length
+  const head = lit === n ? `You helped light ${n === 1 ? 'a fire' : `${n} fires`}` : lit > 0 ? `You helped light ${lit} of ${n} fires` : n === 1 ? 'Your fire went up in smoke' : `Your ${n} fires went up in smoke`
+  const parts = [head, `${f(wood)} wood thrown`]
+  if (lit > 0) parts.push(`+${f(earned)} new ${symbol}`)
+  if (lost > 0n) parts.push(`${f(lost)} burned`)
+  return { nights: n, lit, wood, earned, lost, text: parts.join(' · ') }
+}
+
 // ---- outcomes and history -----------------------------------------------------------------------
 
 /** "LIT ×4", "SMOKED", "COLD", as the coin's face writes them. */

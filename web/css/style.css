@@ -170,7 +170,7 @@ body.cold .quarters, body.offline .quarters { display: none; }
 .chip:disabled { opacity: 0.4; }
 .throw-hint { min-height: 2.6em; margin: 10px 0 12px; font-size: 0.84rem; color: var(--ink-2); }
 .throw-hint:empty { display: none; }
-.kindle + .throw-row[hidden] + .throw-hint:empty + .mine { margin-top: 4px; }
+.kindle + .throw-row[hidden] + .throw-hint:empty + .mine, .kindle + .throw-row[hidden] + .throw-hint:empty + .intro[hidden] + .mine { margin-top: 4px; }
 .mine { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .mine div { display: flex; flex-direction: column; }
 .mine span { font-size: 0.74rem; color: var(--ink-3); font-weight: 700; }
@@ -178,6 +178,37 @@ body.cold .quarters, body.offline .quarters { display: none; }
 .note { margin: 12px 0 0; font-size: 0.86rem; color: var(--ink-2); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
 .status { margin: 8px 0 0; min-height: 1.2em; font-size: 0.82rem; color: var(--ink-3); }
 .status.busy::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; background: var(--flame); box-shadow: 0 0 10px var(--flame); animation: pulse 0.9s ease-in-out infinite; vertical-align: 1px; }
+.my-tally { margin: 10px 0 0; font-size: 0.8rem; line-height: 1.4; color: var(--ink-2); }
+
+/* ---- a first visit: three steps, numbered on the controls they point at ---- */
+/* on wide screens a card of its own under "Your wood", so nothing above it moves when it appears */
+.intro { position: absolute; top: calc(100% + 12px); left: 0; right: 0; padding: 13px 16px 11px; border-radius: var(--radius); background: var(--glass-strong); border: 1px solid rgba(255, 210, 120, 0.3); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45); animation: fade-up 0.45s ease-out; }
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } }
+.intro-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.intro-head h3 { margin: 0; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); }
+.intro-close { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--ink-3); font-size: 1.05rem; line-height: 1; }
+.intro-close:hover { color: var(--ink-1); border-color: rgba(255, 214, 160, 0.34); }
+.intro-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.intro-steps li { display: grid; grid-template-columns: 22px 1fr; column-gap: 10px; align-items: center; }
+.intro-num { grid-row: 1 / 3; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 0.74rem; font-weight: 800; color: var(--amber); border: 1px solid rgba(255, 200, 120, 0.5); }
+.intro-steps b { font-size: 0.9rem; line-height: 1.2; }
+.intro-sub { font-size: 0.76rem; line-height: 1.25; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.intro-steps li.now .intro-num { color: #2a1404; background: linear-gradient(180deg, #ffe1a0, #ffb455); border-color: transparent; box-shadow: 0 0 12px rgba(255, 160, 60, 0.55); }
+.intro-steps li.now .intro-sub { color: var(--ink-2); }
+.intro-steps li.done .intro-num { color: var(--good); border-color: rgba(255, 216, 138, 0.35); }
+.intro-steps li.done b { color: var(--ink-3); }
+.intro-foot { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 0.76rem; color: var(--ink-3); }
+.intro-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
+.kindle { position: relative; }
+body.intro-at-1 .kindle::before, body.intro-at-2 .throw-row .chip:first-child::before { position: absolute; top: -9px; left: -9px; width: 22px; height: 22px; border-radius: 50%; font-size: 0.74rem; font-weight: 800; line-height: 22px; text-align: center; color: #2a1404; background: linear-gradient(180deg, #ffe1a0, #ffb455); box-shadow: 0 0 0 3px rgba(17, 12, 28, 0.92), 0 0 14px rgba(255, 160, 60, 0.6); }
+body.intro-at-1 .kindle::before { content: "1"; }
+body.intro-at-2 .throw-row .chip:first-child::before { content: "2"; }
+body.intro-on .until::after { content: "3"; display: inline-block; width: 20px; height: 20px; margin-left: 7px; border-radius: 50%; font-size: 0.7rem; font-weight: 800; line-height: 18px; text-align: center; vertical-align: 1px; color: var(--amber); border: 1px solid rgba(255, 200, 120, 0.6); text-shadow: none; }
+body.intro-at-3 .until::after { color: #2a1404; background: linear-gradient(180deg, #ffe1a0, #ffb455); border-color: transparent; box-shadow: 0 0 12px rgba(255, 160, 60, 0.55); }
+
+/* ---- late in the night: the streak at risk ---- */
+.risk { margin-top: 10px; padding: 5px 14px; border-radius: 999px; font-size: 0.86rem; font-weight: 700; line-height: 1.3; color: #ffe2c6; background: rgba(120, 30, 8, 0.55); border: 1px solid rgba(255, 130, 80, 0.55); box-shadow: 0 0 26px rgba(255, 90, 40, 0.3); text-shadow: none; text-wrap: balance; animation: fade-up 0.45s ease-out; }
+
 body.cold .tonight, body.offline .tonight { display: none; }
 body.cold .you .balance, body.cold .mine, body.offline .you .balance, body.offline .mine { display: none; }
 body.cold .strip-row, body.offline .strip-row { display: none; }
@@ -313,8 +344,9 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
   .hero .card { position: relative; top: auto; left: auto; right: auto; transform: none; width: auto; margin: 0 12px; }
   .you { order: 1; margin-top: 2px !important; z-index: 6; }
   .banner { top: 132px; bottom: auto; }
-  body.banner-on .rules { opacity: 0; }
+  body.banner-on .rules, body.banner-on .risk { opacity: 0; }
   .tonight { order: 2; margin-top: 12px !important; }
+  .intro { position: static; margin: 0 0 12px; padding: 12px 14px 10px; border-radius: 14px; background: rgba(255, 210, 120, 0.06); box-shadow: none; }
   .story { grid-template-columns: 1fr; padding: 22px 12px 4px; gap: 12px; }
   .side-cards { gap: 12px; }
   .how { padding: 8px 12px 0; }
@@ -344,6 +376,13 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
 
 @media (max-width: 900px) {
   .mock-badge { top: auto; bottom: 0; border-radius: 10px 10px 0 0; }
+}
+
+@media (min-width: 901px) and (max-height: 860px) {
+  .intro { padding: 10px 14px 9px; }
+  .intro-head { margin-bottom: 6px; }
+  .intro-steps { gap: 5px; }
+  .intro-foot { display: none; }
 }
 
 @media (max-width: 380px) {

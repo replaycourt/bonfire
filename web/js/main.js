@@ -17,6 +17,25 @@ const MOCK = params.get('mock') === '1'
 const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 const phone = () => window.matchMedia('(max-width: 900px)').matches
 
+/** localStorage that never throws (private windows may refuse it; then the page just forgets). */
+const store = {
+  get(k) {
+    try {
+      return globalThis.localStorage?.getItem(k) ?? null
+    } catch {
+      return null
+    }
+  },
+  set(k, v) {
+    try {
+      globalThis.localStorage?.setItem(k, v)
+    } catch {
+      /* not kept */
+    }
+  },
+}
+const INTRO_KEY = MOCK ? 'bonfire:mock-intro:v1' : 'bonfire:intro:v1'
+
 const S = {
   cfg: null,
   state: null,
@@ -53,6 +72,12 @@ const S = {
   helpTimer: null,
   firestarter: null,
   lastLog: null,
+  introWanted: false, // a first visit: the three steps show once the replay is over
+  intro: null, // null | 'on' | 'done'
+  tallyKey: null, // localStorage key of the player's tally (tallySee)
+  tally: null,
+  tallySaved: null,
+  tallyBusy: false,
 }
 
 let client
@@ -94,7 +119,11 @@ async function boot() {
     return bootFailed(e)
   }
   U.$('how-body').innerHTML = U.howHtml(S.cfg)
-  if (identity) S.holder = await client.setIdentity(identity).catch(() => null)
+  if (identity) {
+    S.holder = await client.setIdentity(identity).catch(() => null)
+    S.tallyKey = `bonfire:tally:v1:${MOCK ? 'mock:' : ''}${client.contract}:${identity.account}`
+    S.tally = loadTally()
+  }
   S.phase = 'live'
   document.body.classList.add('live')
   await poll()
@@ -156,7 +185,13 @@ function wire() {
     if (b && !b.disabled) onCheat(b.dataset.cheat)
   })
   U.$('drawer-backdrop').addEventListener('click', U.closeDrawer)
-  document.addEventListener('keydown', (e) => e.key === 'Escape' && U.drawerOpen() && U.closeDrawer())
+  U.$('intro-close').addEventListener('click', endIntro)
+  U.$('intro-proof').addEventListener('click', openProof)
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return
+    if (U.drawerOpen()) U.closeDrawer()
+    else if (S.intro === 'on' && U.$('intro').contains(document.activeElement)) endIntro()
+  })
   renderSound()
 }
 
@@ -187,10 +222,13 @@ async function poll() {
     if (holder) S.holder = holder
     S.recent = recent ?? []
     spotThrows()
+    noteTally()
     const lastNight = state.last?.night ?? 0
     if (S.lastSettled === null) {
       S.lastSettled = lastNight
-      setTimeout(() => replayLastNight(state.last), 1500)
+      // a first visit: a newcomer who has not hidden the steps before, and who can play
+      S.introWanted = store.get(INTRO_KEY) === null && S.canSign && client.canAct && !S.holder?.held
+      setTimeout(() => replayLastNight(state.last) || showIntro(), 1500)
     } else if (lastNight > S.lastSettled) {
       S.lastSettled = lastNight
       onSettled(state.last)
@@ -267,13 +305,14 @@ async function settleSoon() {
  * The payoff at first sight: once per visit, last night plays back in about five seconds (its pile
  * rising against its target, then dawn and the banner), so a visitor sees what a night is without
  * waiting for this one to end. It reads state.last and night(n); nothing is sent. Cold nights have
- * nothing to show and are skipped, and so is the playback for reduced motion.
+ * nothing to show and are skipped, and so is the playback for reduced motion. Returns whether it
+ * plays; the first-visit steps follow it.
  */
 function replayLastNight(last) {
-  if (S.replayed || reduced || !last || !['LIT', 'SMOKED'].includes(last.outcome)) return
+  if (S.replayed || reduced || !last || !['LIT', 'SMOKED'].includes(last.outcome)) return false
   const pile = BigInt(last.pile ?? 0)
   const target = BigInt(last.target ?? 0)
-  if (pile <= 0n || target <= 0n || S.state?.last?.night !== last.night) return
+  if (pile <= 0n || target <= 0n || S.state?.last?.night !== last.night) return false
   S.replayed = true
   S.replaying = true
   const w = (u) => L.fmtWhole(u, S.cfg.config.decimals)
@@ -298,15 +337,120 @@ function replayLastNight(last) {
       .then((n) => L.nightResult(n, S.holder, client.identity?.account, S.cfg.config.decimals, S.cfg.config.symbol, BOTS))
       .catch(() => null)
       .then((result) => {
-        showBanner(last, result)
-        U.setText('banner-kicker', `Replay of last night · Night ${last.night} · ${result?.word ?? last.outcome}`)
+        // a dawn that came during the playback has its own banner up: the replay does not cover it
+        if (S.lastSettled === last.night) {
+          showBanner(last, result)
+          U.setText('banner-kicker', `Replay of last night · Night ${last.night} · ${result?.word ?? last.outcome}`)
+        }
         setTimeout(() => {
           S.replaying = false
           render()
+          showIntro()
         }, 3000)
       })
   }
   requestAnimationFrame(step)
+  return true
+}
+
+// ---- a first visit: three steps, numbered on the controls they point at --------------------------
+
+function showIntro() {
+  if (!S.introWanted || S.intro || !S.model) return
+  S.intro = 'on'
+  U.setText('intro-title', `A whole night in ${L.fmtDuration(S.model.nightMs)}`)
+  U.$('intro').hidden = false
+  renderIntro()
+}
+
+function renderIntro() {
+  const on = S.intro === 'on' && !!S.model
+  document.body.classList.toggle('intro-on', on)
+  if (!on) return
+  const now = chainNow() // the third step counts down with the clock, between polls too
+  const m = { ...S.model, msLeft: Math.max(0, S.model.end - now), due: S.model.due || now >= S.model.end }
+  const { at, steps } = L.introSteps(m, queue?.pendingWood() ?? 0n)
+  for (const k of [1, 2, 3]) document.body.classList.toggle(`intro-at-${k}`, at === k)
+  const items = U.$('intro-steps').children
+  steps.forEach((st, i) => {
+    const li = items[i]
+    if (li.className !== st.state) li.className = st.state
+    if (st.state === 'now') li.setAttribute('aria-current', 'step')
+    else li.removeAttribute('aria-current')
+    const [num, title, sub, sr] = li.children
+    const mark = st.state === 'done' ? '✓' : String(st.n)
+    if (num.textContent !== mark) num.textContent = mark
+    if (title.textContent !== st.title) title.textContent = st.title
+    if (sub.textContent !== st.sub) sub.textContent = st.sub
+    const said = st.state === 'done' ? ' (done)' : ''
+    if (sr.textContent !== said) sr.textContent = said
+  })
+}
+
+/** Hidden for good: by the player, or once the night the player threw on has settled. */
+function endIntro() {
+  if (S.intro !== 'on') return
+  S.intro = 'done'
+  store.set(INTRO_KEY, String(Date.now()))
+  const focused = U.$('intro').contains(document.activeElement)
+  U.$('intro').hidden = true
+  for (const c of ['intro-on', 'intro-at-1', 'intro-at-2', 'intro-at-3']) document.body.classList.remove(c)
+  if (focused) [U.$('btn-kindle'), ...U.$('throw-row').querySelectorAll('button'), U.$('btn-collect')].find((b) => b && !b.disabled && b.offsetParent)?.focus()
+}
+
+// ---- the player's own tally, from what this page saw ----------------------------------------------
+
+function loadTally() {
+  try {
+    return JSON.parse(store.get(S.tallyKey) ?? 'null')
+  } catch {
+    return null
+  }
+}
+
+function saveTally(t) {
+  S.tally = t
+  const text = JSON.stringify(t)
+  if (text === S.tallySaved) return
+  S.tallySaved = text
+  store.set(S.tallyKey, text)
+}
+
+/** A settled night's outcome, where the page has it. */
+const outcomeOf = (n) => S.history.find((r) => r.night === n)?.outcome ?? (S.state?.last?.night === n ? S.state.last.outcome : null)
+
+function noteTally() {
+  if (!S.tallyKey || !S.holder || !S.state) return
+  saveTally(L.tallySee(S.tally, S.holder, S.state.night, outcomeOf))
+  resolveTally()
+}
+
+/** Nights the page saw wood on but not their payout (collected while it was closed): from night(n). */
+async function resolveTally() {
+  // the holder's own night settles from holder(me) on the next poll
+  const open = L.tallyOpen(S.tally, S.state.night).filter((n) => n !== S.holder?.wood_night)
+  if (S.tallyBusy || !open.length) return
+  S.tallyBusy = true
+  try {
+    for (const n of open.slice(0, 3)) {
+      let view
+      try {
+        view = await client.night(n)
+      } catch {
+        break // try again on a later poll
+      }
+      saveTally(L.tallyResolve(S.tally, n, view, outcomeOf(n)))
+    }
+  } finally {
+    S.tallyBusy = false
+  }
+  renderTally()
+}
+
+function renderTally() {
+  const sum = S.cfg ? L.tallySummary(S.tally, S.cfg.config.decimals, S.cfg.config.symbol) : null
+  U.$('my-tally').hidden = !sum
+  if (sum) U.setText('my-tally', sum.text)
 }
 
 async function onSettled(last) {
@@ -322,6 +466,7 @@ async function onSettled(last) {
     /* the banner falls back to the outcome alone */
   }
   showBanner(last, result)
+  if (result?.mine) endIntro() // the first night is played: the banner is the third step
   loadHistory()
   loadIcon()
   scheduleHelp(15_000 + Math.random() * 15_000)
@@ -623,7 +768,14 @@ function render() {
   U.setText('last-log', m.lastLog ? `${L.nameOf(m.lastLog.account, me, BOTS)} · ${f(m.lastLog.amount)}` : m.reached ? '–' : 'not yet')
   U.$('last-log').classList.toggle('muted', !m.lastLog)
   U.setText('kindling-left', m.kindlingLeft > 0 ? `Kindling left tonight: ${m.kindlingLeft} of ${m.kindlingPerNight}` : 'No kindling left tonight')
+  const risk = L.streakRisk(m)
+  if (U.$('risk').hidden !== !risk) {
+    U.$('risk').hidden = !risk
+    layout() // the moon's path stays under the text above it
+  }
+  if (risk) U.setText('risk', risk.text)
   renderYou()
+  renderTally()
   renderRecords()
   tickClock()
 }
@@ -649,6 +801,7 @@ function tickClock() {
     S.windowSeen = win.current
     refreshEstimate()
   }
+  renderIntro()
 }
 
 function renderYou() {
@@ -723,6 +876,7 @@ function renderYou() {
   const inflight = queue?.inflight
   st.textContent = inflight ? { throw: `Throwing ${inflight.amount ? f(inflight.amount) : ''} EMBER…`, kindling: 'Fetching kindling…', collect: 'Collecting…' }[inflight.kind] : ''
   st.classList.toggle('busy', !!inflight)
+  renderIntro()
 }
 
 function select(i) {
