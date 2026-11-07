@@ -1,7 +1,7 @@
 // The "How it works" text, built from config() alone (no DOM needed for it).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { howHtml, pctChange } from '../js/ui.js'
+import { howHtml, pctChange, proofHtml } from '../js/ui.js'
 
 const E = (n) => (BigInt(n) * 10n ** 18n).toString()
 const cfg = (over = {}) => ({
@@ -55,4 +55,15 @@ test('the supply axis reads as the change since the first night, small moves inc
   assert.equal(pctChange(1_000_000, 1_000_000), '±0 %')
   assert.equal(pctChange(999_000, 1_000_000), '−0.10 %')
   assert.equal(pctChange(1_050_000, 1_000_000), '+5.00 %')
+})
+
+test('try to cheat it: real rule breakers in the Proof drawer, the second claim only after a first', () => {
+  const base = { mock: false, deployment: 'final', contract: 'bonfire-coin.testnet', keys: [], codeHash: null, account: 'ab', gasAccount: 'g', rpcHost: 'r', txs: [], explorer: 'https://x', deployed: true, owed: null }
+  const fresh = proofHtml({ ...base, cheats: { canAct: true, kindlingTwice: false } })
+  assert.match(fresh, /data-cheat="future">/)
+  assert.match(fresh, /data-cheat="kindling" disabled>/)
+  assert.match(fresh, /nonce already used/)
+  const claimed = proofHtml({ ...base, cheats: { canAct: true, kindlingTwice: true } })
+  assert.match(claimed, /data-cheat="kindling">/)
+  assert.doesNotMatch(proofHtml({ ...base, mock: true, cheats: { canAct: true, kindlingTwice: true } }), /data-cheat/)
 })

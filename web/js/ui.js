@@ -290,7 +290,7 @@ export function ledgerCheckHtml(c, { decimals, symbol }) {
 
 // ---- proof drawer -------------------------------------------------------------------------------
 
-export function proofHtml({ mock, deployment, contract, keys, codeHash, expectedHash = null, account, gasAccount, rpcHost, txs, explorer, deployed, owed }) {
+export function proofHtml({ mock, deployment, contract, keys, codeHash, expectedHash = null, account, gasAccount, rpcHost, txs, explorer, deployed, owed, cheats = null }) {
   const link = (path, text) => (mock ? `<code>${esc(text)}</code>` : `<a href="${esc(explorer)}/${path}" target="_blank" rel="noopener">${esc(text)}</a>`)
   const keyLine =
     keys == null
@@ -329,11 +329,34 @@ export function proofHtml({ mock, deployment, contract, keys, codeHash, expected
       <li><span>RPC</span><code>${esc(rpcHost)}</code></li>
       ${owed ? `<li><span>Owed</span>${owedLine}</li>` : ''}
     </ul>
+    ${cheatHtml(cheats, mock, explorer)}
     <h3>Your transactions</h3>
     <ul class="tx-list">${rows}</ul>
     <h3>Check the keys yourself</h3>
     <pre class="rpc">{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"${esc(contract)}"}}</pre>
     <p class="muted">Send it to any NEAR testnet RPC: <code>"keys":[]</code> means no one, not even its author, can change the contract.</p>`
+}
+
+/** A replayed act refused on bonfire-stage.testnet, which runs the same code (docs/testnet-stage.md, tx 54). */
+const REPLAY_TX = 'EFxtQKPvpQbXzA63MSiXBPgKa4B5rVVuFCtZRHteVJv3'
+
+/**
+ * "Try to cheat it": buttons that send a real transaction breaking a rule, so a visitor sees the
+ * contract refuse it. `cheats` is {canAct, kindlingTwice}; kindling twice only makes sense after a
+ * first claim (before it, the claim is allowed).
+ */
+function cheatHtml(cheats, mock, explorer) {
+  if (mock || !cheats) return ''
+  const off = (on) => (on ? '' : ' disabled')
+  return `
+    <h3>Try to cheat it</h3>
+    <p class="muted">Each button sends a real transaction that breaks a rule. Watch the contract refuse it; the refusal shows up under your transactions.</p>
+    <div class="cheats">
+      <button type="button" class="cheat" data-cheat="future"${off(cheats.canAct)}>Throw wood on tomorrow’s fire</button>
+      <button type="button" class="cheat" data-cheat="kindling"${off(cheats.canAct && cheats.kindlingTwice)}>Claim kindling a second time</button>
+    </div>
+    ${cheats.kindlingTwice ? '' : '<p class="muted">The second claim unlocks after your first kindling.</p>'}
+    <p class="muted">Sending the same signed action twice was refused on the staging contract, which runs the same code: <a href="${esc(explorer)}/txns/${REPLAY_TX}" target="_blank" rel="noopener"><code>nonce already used</code></a>.</p>`
 }
 
 // ---- how it works -------------------------------------------------------------------------------

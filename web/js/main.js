@@ -144,6 +144,10 @@ function wire() {
   U.$('btn-collect').addEventListener('click', onCollect)
   U.$('btn-older').addEventListener('click', showOlder)
   U.$('drawer-close').addEventListener('click', U.closeDrawer)
+  U.$('drawer-body').addEventListener('click', (e) => {
+    const b = e.target.closest?.('[data-cheat]')
+    if (b && !b.disabled) onCheat(b.dataset.cheat)
+  })
   U.$('drawer-backdrop').addEventListener('click', U.closeDrawer)
   document.addEventListener('keydown', (e) => e.key === 'Escape' && U.drawerOpen() && U.closeDrawer())
   renderSound()
@@ -487,8 +491,24 @@ function onCollect() {
   renderYou()
 }
 
+/** "Try to cheat it": a real act that breaks a rule, so the contract's refusal can be seen. */
+function onCheat(what) {
+  if (!client?.canAct) return
+  sound.enable()
+  const night = clockNow()
+  const build = what === 'future' ? () => L.throwAction(S.cfg.config.min_throw, night + 1) : () => L.kindlingAction(night)
+  queue.push({ kind: 'cheat', what, build })
+  U.toast('Sent. Waiting for the contract’s answer…', '', 3000)
+}
+
 function onDone(out, item) {
   const m = S.model
+  if (item.kind === 'cheat') {
+    if (out?.ok) U.toast('That went through, which it should not have. Please report it.', 'warn', 8000)
+    else U.toast(`Refused, as it should be. The contract said: “${out?.error ?? 'no'}”`, 'ok', 8000)
+    schedule(100) // client.onTx has already redrawn an open Proof drawer with the new transaction
+    return
+  }
   if (!out?.ok) {
     sound.refuse()
     U.toast(refusal(out?.error, item), 'warn', 6000)
@@ -767,6 +787,7 @@ async function openProof() {
       explorer: EXPLORER,
       deployed: S.deployed,
       owed: S.state ? { amount: L.fmtEmber(S.state.owed, S.cfg.config.decimals), nights: S.state.owed_nights } : null,
+      cheats: { canAct: Boolean(client?.canAct), kindlingTwice: S.model?.kindle.why === 'claimed' },
     })
   U.openDrawer('Proof', draw())
   if (S.keys === null && client) {
