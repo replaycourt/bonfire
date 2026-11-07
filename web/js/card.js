@@ -47,7 +47,8 @@ export async function drawCard({ result, icon, symbol, decimals }) {
   glow.addColorStop(1, 'rgba(0, 0, 0, 0)')
   g.fillStyle = glow
   g.fillRect(0, 0, W, H)
-  if (icon) {
+  // only the contract's own face, already passed through safeIcon: a data: SVG, never a URL
+  if (typeof icon === 'string' && icon.startsWith('data:image/')) {
     try {
       const img = new Image()
       img.src = icon
