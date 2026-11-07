@@ -76,7 +76,7 @@ The rules in words are in [DESIGN.md](DESIGN.md), the API and its limits in [con
 Measured on a 4-core laptop:
 
 ```sh
-node --test 'web/test/*.test.mjs'       # 84 tests; Node 22+, no install; about 5 seconds
+node --test 'web/test/*.test.mjs'       # 85 tests; Node 22+, no install; about 5 seconds
 node --test 'scripts/test/*.test.mjs'   # 7 tests, offline (fetch is faked); about 50 seconds
 cd contract && cargo test               # 121 tests in the SDK's mock VM; a cold build took 8.5 minutes, the tests about 1 second
 python3 sim/bonfire_sim.py scenarios    # reruns the scenarios and rewrites docs/SIMULATION.md's tables and charts; about 80 seconds
