@@ -19,9 +19,14 @@ EMPTY_ARGS=e30= # base64 of {}
 
 FAILED=0
 TOTAL=0
+FALLBACK_RPC=${FALLBACK_RPC:-https://near-testnet.drpc.org}
+# --fail keeps an HTTP error page (FastNEAR answers 429 to a quick burst of calls) out of the output,
+# so a retry cannot append a second answer to the first; when the RPC keeps refusing, the fallback
+# answers instead. An empty output becomes "error: no answer from the RPC" in check().
 query() { # $1: JSON params of a `query` call
-  curl -s --max-time 20 --retry 2 "$RPC" -H 'Content-Type: application/json' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"query\",\"params\":$1}"
+  local body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"query\",\"params\":$1}"
+  curl -sf --max-time 20 --retry 3 --retry-delay 2 "$RPC" -H 'Content-Type: application/json' -d "$body" ||
+    curl -sf --max-time 20 --retry 2 --retry-delay 2 "$FALLBACK_RPC" -H 'Content-Type: application/json' -d "$body"
 }
 view() { # $1: method, $2: base64 of the JSON args, $3: optional block height (default: final)
   local at='"finality":"final"'
