@@ -335,7 +335,7 @@ and, inside them, the function bodies and data byte ranges.
 |---|---|
 | the author's Mac, macOS 15 x86_64 (a 4-core Intel Mac): cold builds into two different target directories | byte-identical to the code on chain |
 | the same Mac, from a copy at another path, with the cargo and rustup homes at other paths | byte-identical to the code on chain |
-| CI job `wasm` on GitHub's `macos-15-intel`, `ubuntu-latest` (Linux x86_64) and `macos-15` (arm64), every push | each job compares its rebuild with the chain section by section and uploads its wasm; until 2026-11-07 all three built `f476f6a7…`, which differed from the chain only through a variable the job set (below) |
+| CI job `wasm` on GitHub's `macos-15-intel`, `ubuntu-latest` (Linux x86_64) and `macos-15` (arm64), every push | byte-identical to the code on chain on all three since the run of 2026-11-07 (a difference fails the run); before the fix all three built `f476f6a7…`, which differed from the chain only through a variable the job set (below) |
 | the author's Mac with `CARGO_NEAR_VERSION=0.22.0` exported to the old `build.sh`, as the CI job had it | `f476f6a7…`, CI's bytes |
 
 **Why Linux differed, and what the host pin fixes.** Before the pin, CI built `5d901928…` on Linux
