@@ -9,6 +9,7 @@
 #           meta.takes (made by capture.mjs). Required.
 #   OUT     output directory (default: demo/video/out, git-ignored): bonfire-demo.mp4, bonfire-demo.srt,
 #           poster.png (a still of the finished video at meta.posterAt seconds)
+#   NAME    base name of the video and subtitle files (default: bonfire-demo)
 #   WORK    scratch directory for voice clips, frames and binaries (default: $TMPDIR/bonfire-video).
 #           Frames take a few GB; nothing in WORK is needed after the build.
 #   WRAP    optional command prefix for every step, e.g. a memory/time cap wrapper.
@@ -24,13 +25,14 @@ WORK="${WORK:-${TMPDIR:-/tmp}/bonfire-video}"
 WORK="${WORK%/}"
 WRAP="${WRAP:-}"
 OUT="${OUT:-$VIDEO/out}"
+NAME="${NAME:-bonfire-demo}"
 : "${TAKES:?set TAKES to the directory holding the recorded takes (see README.md)}"
 mkdir -p "$WORK/bin" "$OUT"
 
 meta() { python3 -I -c "import json,sys; print(json.load(open(sys.argv[1]))['meta'][sys.argv[2]])" "${STORYBOARD:-$VIDEO/storyboard.json}" "$1"; }
 
 echo "== 1/5 voiceover, timeline, subtitles"
-$WRAP python3 -I "$VIDEO/tools/voice.py" --storyboard "${STORYBOARD:-$VIDEO/storyboard.json}" --takes "$TAKES" --work "$WORK" --srt "$OUT/bonfire-demo.srt"
+$WRAP python3 -I "$VIDEO/tools/voice.py" --storyboard "${STORYBOARD:-$VIDEO/storyboard.json}" --takes "$TAKES" --work "$WORK" --srt "$OUT/$NAME.srt"
 
 echo "== 2/5 frames (headless Chrome)"
 $WRAP node "$VIDEO/tools/compose.mjs" --work "$WORK"
@@ -41,11 +43,11 @@ echo "== 3/5 compile encoder and probe"
 
 echo "== 4/5 encode H.264 + AAC"
 $WRAP "$WORK/bin/encode" --manifest "$WORK/frames/manifest.txt" --audio "$WORK/voice.wav" \
-  --out "$OUT/bonfire-demo.mp4" --fps "$(meta fps)" --width "$(meta width)" --height "$(meta height)" \
+  --out "$OUT/$NAME.mp4" --fps "$(meta fps)" --width "$(meta width)" --height "$(meta height)" \
   --vbitrate "$(meta videoBitrate)" --abitrate "$(meta audioBitrate)"
 
 echo "== 5/5 check, poster"
 POSTER="$(meta posterAt)"
-$WRAP "$WORK/bin/probe" "$OUT/bonfire-demo.mp4" --stills "$POSTER${STILLS:+,$STILLS}" --out "$WORK/check"
+$WRAP "$WORK/bin/probe" "$OUT/$NAME.mp4" --stills "$POSTER${STILLS:+,$STILLS}" --out "$WORK/check"
 cp "$WORK/check/still-$POSTER.png" "$OUT/poster.png"
-echo "wrote $OUT/bonfire-demo.mp4, $OUT/bonfire-demo.srt, $OUT/poster.png"
+echo "wrote $OUT/$NAME.mp4, $OUT/$NAME.srt, $OUT/poster.png"

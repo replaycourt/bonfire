@@ -1,0 +1,383 @@
+{
+  "_readme": "The short cut for X (about 80 s), built like storyboard.json (see its _readme and README.md). Two takes: \"night\", the recorded night of the published video (kindling, the throw, the bots, the lit and the smoky dawn), and \"tour\", a fresh visitor's first minute recorded with capture.mjs --tour (the replay of last night, the proof drawer and its refused cheat, the supply chart). A clip names its take with \"take\"; without one it is the first. The share card is card-30.png, drawn by card.mjs from the night take's visitor and night 30.",
+  "meta": {
+    "title": "Bonfire",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "videoBitrate": 3000000,
+    "audioBitrate": 112000,
+    "posterAt": 2.6,
+    "takes": [
+      "night",
+      "tour"
+    ],
+    "contract": "bonfire-coin.testnet"
+  },
+  "voice": {
+    "engine": "piper",
+    "name": "en_US-lessac-high",
+    "lengthScale": 1.2,
+    "noiseScale": 0.5,
+    "noiseW": 0.6,
+    "sentenceSilence": 0.3,
+    "sceneLeadIn": 0.3,
+    "cueGap": 0.3,
+    "sceneTail": 0.4,
+    "endHold": 1.2,
+    "captionHold": 0.6
+  },
+  "scenes": [
+    {
+      "id": "hook",
+      "badge": false,
+      "cursor": false,
+      "clip": {
+        "from": "banner:Night 30 -0.9",
+        "dur": 4.2,
+        "zoom": {
+          "from": [
+            380,
+            222,
+            520
+          ],
+          "to": [
+            405,
+            232,
+            470
+          ],
+          "in": 4.2
+        }
+      },
+      "overlay": {
+        "kind": "title",
+        "word": "Bonfire",
+        "tag": "A memecoin you *light together*.",
+        "fadeOut": 0.4
+      },
+      "cues": [
+        {
+          "caption": "A memecoin you light together.",
+          "noCaption": true
+        }
+      ]
+    },
+    {
+      "id": "replay",
+      "captionPos": "top",
+      "cursor": false,
+      "clips": [
+        {
+          "take": "tour",
+          "from": "banner:Replay-5.4",
+          "to": "banner:Replay+2.6"
+        }
+      ],
+      "cues": [
+        {
+          "caption": "New here? Last night replays in *five seconds*: the pile climbs to its target, then dawn.",
+          "say": "New here? Last night replays in five seconds: the pile climbs to its target, then dawn."
+        }
+      ]
+    },
+    {
+      "id": "visitor",
+      "captionPos": "bottom",
+      "clips": [
+        {
+          "from": "hover:Get kindling-1.2",
+          "to": "click:Get kindling+0.5"
+        },
+        {
+          "from": "click:Get kindling+0.5",
+          "to": "toast:kindling-0.3",
+          "speed": 3
+        },
+        {
+          "from": "toast:kindling-0.3",
+          "to": "hover:chip 100+0.3",
+          "speed": 2
+        },
+        {
+          "from": "hover:chip 100+0.3",
+          "to": "click:throw 100+0.2",
+          "zoom": {
+            "to": [
+              640,
+              150,
+              640
+            ],
+            "in": 0.6,
+            "out": 0.5
+          }
+        },
+        {
+          "from": "click:throw 100+0.2",
+          "to": "firestarter:you+1.6",
+          "speed": 2
+        }
+      ],
+      "cues": [
+        {
+          "caption": "No wallet, no sign-up: one tap brings free *kindling*.",
+          "say": "No wallet, no sign-up: one tap brings free kindling."
+        },
+        {
+          "caption": "The pile is cold, so early wood counts *×3.7*. Throw a hundred.",
+          "say": "The pile is cold, so early wood counts three point seven times. Throw a hundred."
+        }
+      ]
+    },
+    {
+      "id": "bots",
+      "captionPos": "bottom",
+      "ticker": {
+        "night": 30
+      },
+      "cursor": false,
+      "clips": [
+        {
+          "from": "firestarter:you+1.6",
+          "to": "throw:demo-bot-early-a-1.0",
+          "speed": 24
+        },
+        {
+          "from": "throw:demo-bot-early-a-1.0",
+          "to": "throw:demo-bot-early-a+2.2",
+          "fixed": true
+        },
+        {
+          "from": "throw:demo-bot-early-a+2.2",
+          "to": "throw:demo-bot-late-1.0",
+          "speed": 24
+        },
+        {
+          "from": "throw:demo-bot-late-1.0",
+          "to": "throw:demo-bot-late+2.6",
+          "fixed": true
+        },
+        {
+          "from": "throw:demo-bot-late+2.6",
+          "to": "banner:Night 30 -1.2",
+          "speed": 24
+        }
+      ],
+      "fit": "stretch",
+      "cues": [
+        {
+          "caption": "Then the demo bots, labelled as bots. Two early ones share your quarter."
+        },
+        {
+          "caption": "A sniper waits for the end, then closes the gap: the *last log*."
+        }
+      ]
+    },
+    {
+      "id": "dawn",
+      "captionPos": "bottom",
+      "cursor": false,
+      "clips": [
+        {
+          "from": "banner:Night 30 -1.2",
+          "to": "banner:Night 30 +4.6"
+        }
+      ],
+      "cues": [
+        {
+          "caption": "Dawn: the fire caught. Your wood comes back, plus *new EMBER*.",
+          "say": "Dawn: the fire caught. Your wood comes back, plus new ember."
+        }
+      ]
+    },
+    {
+      "id": "smoke",
+      "captionPos": "bottom",
+      "cursor": false,
+      "clips": [
+        {
+          "from": "banner:Night 31 -1.0",
+          "dur": 5.5
+        }
+      ],
+      "cues": [
+        {
+          "caption": "Next night they hold back on purpose: it smokes, and *3 %* of the pile burns.",
+          "say": "Next night they hold back on purpose: it smokes, and three percent of the pile burns."
+        }
+      ]
+    },
+    {
+      "id": "proof",
+      "captionPos": "bottom",
+      "clips": [
+        {
+          "take": "tour",
+          "from": "click:Proof-0.6",
+          "to": "keys+3.0",
+          "zoom": {
+            "from": [
+              0,
+              0,
+              1280
+            ],
+            "to": [
+              640,
+              0,
+              640
+            ],
+            "in": 1.2
+          }
+        }
+      ],
+      "cues": [
+        {
+          "caption": "Proof: *0 access keys*. Nobody can change a rule.",
+          "say": "Proof: zero access keys. Nobody can change a rule."
+        }
+      ]
+    },
+    {
+      "id": "cheat",
+      "captionPos": "bottom",
+      "clips": [
+        {
+          "take": "tour",
+          "from": "keys+3.0",
+          "to": "click:cheat future-1.2",
+          "speed": 3,
+          "zoom": {
+            "from": [
+              640,
+              0,
+              640
+            ],
+            "to": [
+              300,
+              157.5,
+              1000
+            ],
+            "in": 2.0
+          }
+        },
+        {
+          "take": "tour",
+          "from": "click:cheat future-1.2",
+          "to": "toast:Refused-0.3",
+          "zoom": {
+            "to": [
+              300,
+              157.5,
+              1000
+            ]
+          }
+        },
+        {
+          "take": "tour",
+          "from": "toast:Refused-0.3",
+          "to": "toast:Refused+4.2",
+          "zoom": {
+            "to": [
+              300,
+              157.5,
+              1000
+            ]
+          }
+        }
+      ],
+      "cues": [
+        {
+          "caption": "So try to cheat it: throw wood on *tomorrow's fire*.",
+          "say": "So try to cheat it: throw wood on tomorrow's fire.",
+          "gapAfter": 3.2
+        },
+        {
+          "caption": "A real transaction, and the contract *refuses* it.",
+          "say": "A real transaction, and the contract refuses it."
+        }
+      ]
+    },
+    {
+      "id": "chart",
+      "captionPos": "bottom",
+      "clips": [
+        {
+          "take": "tour",
+          "from": "scroll-end:chart-0.6",
+          "to": "chart-hover+4.2"
+        }
+      ],
+      "cues": [
+        {
+          "caption": "Supply, as change since the first night: lit nights mint, smoky nights burn.",
+          "say": "Supply, as change since the first night: lit nights mint, smoky nights burn."
+        }
+      ],
+      "badge": false
+    },
+    {
+      "id": "card",
+      "captionPos": "bottom",
+      "overlay": {
+        "kind": "share",
+        "take": "night",
+        "file": "card-30.png",
+        "title": "Save your card",
+        "at": [
+          0.1
+        ]
+      },
+      "cues": [
+        {
+          "caption": "Help light a night, and dawn hands you a card with the coin's face."
+        }
+      ],
+      "minDuration": 5.5
+    },
+    {
+      "id": "end",
+      "badge": false,
+      "cursor": false,
+      "overlay": {
+        "kind": "end",
+        "at": [
+          0.0,
+          1.0,
+          3.0
+        ],
+        "word": "Bonfire",
+        "ticker": "EMBER",
+        "tag": "A memecoin you light together.",
+        "link": "replaycourt.github.io/bonfire/web/",
+        "built": "Built at NEAR HACKATHON",
+        "question": "Would you throw *early*, or wait and *snipe*?"
+      },
+      "cues": [
+        {
+          "caption": "Bonfire. Play it on NEAR testnet, no wallet needed.",
+          "say": "Bonfire. Play it on near testnet, no wallet needed."
+        },
+        {
+          "caption": "Would you throw early, or wait and snipe?",
+          "noCaption": true
+        }
+      ],
+      "clip": {
+        "from": "banner:Night 30 +1.5",
+        "dur": 7.0,
+        "zoom": {
+          "from": [
+            380,
+            222,
+            520
+          ],
+          "to": [
+            405,
+            232,
+            470
+          ],
+          "in": 7.0
+        }
+      }
+    }
+  ]
+}

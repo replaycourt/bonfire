@@ -15,6 +15,10 @@
 //   dawn of A+1    the banner
 //   --face-after   once that night has settled: scroll to the coin's face, back up, open "Proof"
 //
+// With --tour (the short cut) it records a fresh visitor's first minute instead: the replay of last
+// night, "Proof" and its "Try to cheat it" (one throw on tomorrow's fire, refused; --dry only points
+// at the button), then the supply chart. --night is optional there (then it opens at once).
+//
 // Writes into <take dir>:
 //   frames/f000001.jpg …   the screencast (1280x720 CSS pixels at --scale)
 //   frames.jsonl           one line per saved frame: {"i": n, "t": <seconds, wall clock>}
@@ -47,6 +51,7 @@ const SERVE_PORT = Number(arg('serve-port', 8791))
 const SCALE = Number(arg('scale', 1.5))
 const OPEN_AFTER = Number(arg('open-after', 6)) // seconds after dusk
 const DRY = flag('dry')
+const TOUR = flag('tour')
 const QUALITY = Number(arg('quality', 88))
 const W = 1280
 const H = 720
@@ -356,6 +361,52 @@ async function face(page) {
   await sleep(2500)
 }
 
+/**
+ * --tour: a fresh visitor's first minute, for the short cut. The page replays last night by itself;
+ * then the proof drawer and its "Try to cheat it" (one real throw on tomorrow's fire, which the
+ * contract refuses; with --dry the button is only pointed at), then the supply chart.
+ */
+async function tour(page) {
+  await until('replay of last night', (s) => /^Replay/.test(s.banner?.kicker ?? ''), 40000)
+  await sleep(5500)
+  await click(page, '#btn-proof', 'Proof')
+  await until('keys in the proof', (s) => s.keys, 20000).catch((e) => log(e.message))
+  await sleep(3000)
+  await moveTo(page, W - 200, H * 0.42, 500)
+  await wheelTo(page, '.cheats', H * 0.42, 'cheats')
+  await sleep(1200)
+  if (DRY) await hover(page, '[data-cheat="future"]', 'cheat future')
+  else {
+    await click(page, '[data-cheat="future"]', 'cheat future')
+    await until('the contract answers', (s) => /Refused|went through/.test(s.toast ?? ''), 45000).catch((e) => log(e.message))
+  }
+  await sleep(1500)
+  proofTxs = await page
+    .eval(() => [...document.querySelectorAll('#drawer-body .tx-list li')].map((li) => ({ kind: li.querySelector('.kind')?.textContent, hash: li.querySelector('a')?.href?.split('/txns/')[1] ?? null, gas: li.querySelector('.gas')?.textContent })))
+    .catch(() => [])
+  mark('proof-txs', { txs: proofTxs })
+  await sleep(5000)
+  await click(page, '#drawer-close', 'close')
+  await sleep(1200)
+  await moveTo(page, W * 0.5, H * 0.55, 500)
+  await wheelTo(page, '.chart-card', 60, 'chart')
+  await sleep(1500)
+  const box = await page.eval(() => {
+    const r = document.querySelector('#chart svg')?.getBoundingClientRect()
+    return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null
+  })
+  if (box) {
+    mark('chart-hover')
+    for (const k of [0.2, 0.45, 0.7, 0.97]) {
+      await moveTo(page, box.x + box.w * k, box.y + box.h * 0.55, 700)
+      await sleep(900)
+    }
+  }
+  await sleep(1500)
+  await moveTo(page, W * 0.5, H * 0.9, 500)
+  await sleep(1500)
+}
+
 let thin = false
 let proofTxs = []
 
@@ -365,7 +416,7 @@ async function main() {
   const startOf = (n) => Number(cfg.genesis_ms) + (n - 1) * nightMs
   const st0 = await view('state')
   const offset = st0.now_ms - Date.now() // the chain's clock against ours
-  if (!DRY) {
+  if (!DRY && !(TOUR && !NIGHT)) {
     if (!NIGHT) throw new Error('--night is required')
     const openAt = startOf(NIGHT) + OPEN_AFTER * 1000 - offset
     if (Date.now() > openAt + 20000) throw new Error(`night ${NIGHT} began ${Math.round((Date.now() - openAt) / 1000)} s ago: too late for a fresh start`)
@@ -419,6 +470,10 @@ async function main() {
       return null
     })
     mark('visitor', { account: seen.visitor })
+    if (TOUR) {
+      await tour(page)
+      return
+    }
     if (DRY) {
       await sleep(15000)
       return

@@ -25,7 +25,7 @@
   #caption.left { left: 40px; right: 700px; }
   #caption.left .pill { max-width: 1160px; }
   #band { position: absolute; left: 0; right: 0; bottom: 0; height: 170px; background: linear-gradient(180deg, rgba(7, 6, 13, 0), rgba(7, 6, 13, 0.82) 60%); pointer-events: none; }
-  #caption .pill { max-width: 1500px; background: var(--glass); border: 1.5px solid var(--line); border-radius: 26px; padding: 15px 34px; font-size: 38px; line-height: 1.28; font-weight: 700; text-align: center; letter-spacing: 0.005em; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); }
+  #caption .pill { max-width: 1500px; background: var(--glass); border: 1.5px solid var(--line); border-radius: 26px; padding: 15px 34px; font-size: 38px; line-height: 1.28; font-weight: 700; text-align: center; text-wrap: balance; letter-spacing: 0.005em; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); }
   #caption .pill em { font-style: normal; color: var(--amber); }
 
   /* badges at the top centre: live, and sped up */
@@ -84,6 +84,11 @@
   #proof .sim img { width: 860px; display: block; border-radius: 14px; }
   #proof .sim .big { margin-top: 16px; font-size: 30px; font-weight: 800; }
 
+  /* the share card the dawn banner offers (card.mjs draws it with the page's own code) */
+  #share { flex-direction: column; gap: 0; }
+  #share h3 { margin: 0 0 22px; font-size: 26px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); }
+  #share img { width: 1100px; border-radius: 24px; box-shadow: 0 0 0 2px rgba(255, 200, 140, 0.25), 0 24px 90px rgba(255, 120, 40, 0.3); }
+
   /* the end card */
   #end { flex-direction: column; gap: 0; }
   #end .brand { display: flex; align-items: center; gap: 30px; }
@@ -106,6 +111,7 @@
   <div id="face" class="card hidden"></div>
   <div id="proof" class="card hidden"></div>
   <div id="end" class="card hidden"></div>
+  <div id="share" class="card hidden"></div>
   <div id="badges"><div id="badge" class="badge hidden"><span class="dot"></span><span>Live</span><small></small></div><div id="speed" class="badge hidden"><svg viewBox="0 0 22 16"><path d="M1 1 L10 8 L1 15 Z M11 1 L20 8 L11 15 Z" fill="#fff"/></svg><span></span></div></div>
   <div id="band" class="hidden"></div>
   <div id="caption" class="hidden"><div class="pill"></div></div>
@@ -169,6 +175,9 @@ function build(o) {
     fetch(`${take.url}/keys.json`).then((r) => r.json()).then((k) => {
       $('keys-pre').innerHTML = `view_access_key_list\n  account  ${esc(k.account_id)}\n  block    ${esc(k.block_height)}\n\n<b>"keys": ${esc(JSON.stringify(k.keys))}</b>`
     }).catch(() => ($('keys-pre').textContent = 'keys.json missing'))
+  } else if (o.kind === 'share') {
+    // an image saved with a take (o.take, default the first), e.g. card-30.png from card.mjs
+    $('share').innerHTML = `<h3 class="fade" data-at="0">${esc(o.title)}</h3><img class="fade" data-at="0" src="${esc(`${(TAKES[o.take] ?? take).url}/${o.file}`)}" alt="">`
   } else if (o.kind === 'end') {
     $('end').innerHTML = `<div class="brand fade" data-at="0"><img src="${take.url}/icon.svg" alt=""><span class="word">${esc(o.word)}</span><span class="ticker">${esc(o.ticker)}</span></div>
       <div class="tag fade" data-at="0">${rich(o.tag)}</div>
@@ -356,8 +365,8 @@ window.seek = async function (t) {
     sig.push('t' + rows.map((e) => `${e.who}${Math.round(Math.max(0, Math.min(1, (live.src - e.t) / 0.5)) * 4)}`).join(','))
   } else tk.classList.add('hidden')
 
-  // overlays: title, face, proof, end
-  for (const id of ['title', 'face', 'proof', 'end']) $(id).classList.toggle('hidden', sb.overlay?.kind !== id)
+  // overlays: title, face, proof, end, share
+  for (const id of ['title', 'face', 'proof', 'end', 'share']) $(id).classList.toggle('hidden', sb.overlay?.kind !== id)
   if (sb.overlay) {
     const el = $(sb.overlay.kind)
     if (sb.overlay.kind === 'title') {

@@ -98,3 +98,29 @@ STILLS=2,20,45,70 TAKES=takes demo/video/tools/build.sh   # also exports those s
 `WORK` (default `$TMPDIR/bonfire-video`) holds the voice clips, the composed frames (a few GB) and the compiled Swift tools; `WRAP` can prefix every step with a memory or time cap wrapper. A quick look at the cut without encoding: `node demo/video/tools/compose.mjs --work $WORK --stills 3,40,70`.
 
 The take itself (frames and the browser profile with the visitor's key) is not in the repository.
+
+## The short cut on X
+
+`storyboard-short.json` is a second, shorter cut (about 81 s) for a post on X, built by the same tools from two takes. It is not in the repository: the repository keeps one video (the 90 s cut above, in `web/media/`); the short cut lives on X, linked as the demo of the submission.
+
+| Time | Scene | What is shown |
+|---|---|---|
+| 0-4 s | Hook | The fire of night 30, the title |
+| 4-12 s | First visit | A fresh visitor opens the page and last night replays in five seconds: "Night 296, replayed in five seconds", the pile rising against the dashed "target 420", the banner "Replay of last night" |
+| 12-23 s | A fresh visitor | *Get kindling*, the hint "it counts ×3.7", the throw (night take, parts sped up and badged) |
+| 23-33 s | The bots | Night 30 sped up, slowed at the early bots and at the late bot's last log |
+| 33-44 s | Dawn and smoke | The lit dawn of night 30 ("Your 100 wood comes back, plus 4.26 new EMBER") and the smoky dawn of night 31 |
+| 44-60 s | Proof, try to cheat it | The proof drawer (0 access keys), then *Throw wood on tomorrow's fire* and the contract's refusal |
+| 60-66 s | Supply | The supply chart as change since the first night shown, and the coin's face beside it |
+| 66-72 s | The card | The share card the dawn banner offers ("Save your card") |
+| 72-81 s | End card | Play link, "Built at NEAR HACKATHON", "Would you throw early, or wait and snipe?" |
+
+What is real, beyond the night take described above: the `tour` take was recorded on 2026-11-07 at night 297 (10:30 UTC) by `capture.mjs --tour`, a fresh visitor's first minute. The page replayed night 296 by itself; *Throw wood on tomorrow's fire* sent one real transaction, `AkYsBfdB7DhUQCuhQajZ5GTCuvpZ3LaTrA5Y75vnNjko`, and the contract answered `"ok": false, "error": "the action is for night 298, but this is night 297"`. The take predates the *Save your card* button, so the card is drawn by `tools/card.mjs` with the page's own `nightResult` and `drawCard`, from the chain as it stood at the block of the night-30 visitor's collect transaction (`5qaPmN9W…`): `night(30)`, the visitor's uncollected credit (100 wood, 104.26 back) and `ft_metadata().icon` of that dawn (LIT ×15).
+
+Build it (the tour sends one refused throw; `card.mjs` reads past blocks from an archival RPC, `BONFIRE_ARCHIVAL_RPC`, default the public FastNEAR one):
+
+```sh
+node demo/video/tools/capture.mjs --tour --night <N> --out takes/tour
+node demo/video/tools/card.mjs --take takes/night --night 30 --block <block of the visitor's collect transaction>
+STORYBOARD=demo/video/storyboard-short.json NAME=bonfire-short OUT=<dir> TAKES=takes demo/video/tools/build.sh
+```
