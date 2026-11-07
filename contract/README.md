@@ -252,7 +252,9 @@ wasm instructions. Measured host gas (`tests/gas.rs`):
 Wasm execution adds an estimated 50,000 instructions per settled night (the window integrals with
 256-bit divisions, two JSON entries, the night log and history row) and 20,000 per collection, at
 about 0.82 Ggas each: about 1.2 Tgas for 30 nights. With contract loading and the function-call
-fees, the worst `settle` with `max_catchup` 30 stays under 10 Tgas, and `collect` under 3 Tgas.
+fees, the worst `settle` with `max_catchup` 30 costs about 10.5 Tgas (on the launched contract: 10.40 Tgas
+for the whole transaction catching up 30 nights, tx `51jp7ipb6sX7MrrAUnc9xT6vE9K5CTcGvgWt9hMrpRYA`), and
+`collect` stays under 3 Tgas.
 Attach 30 Tgas to `settle`, `collect` and `act`.
 
 ## Storage

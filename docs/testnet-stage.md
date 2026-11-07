@@ -138,7 +138,7 @@ Gas burnt as the receipts report it (`transaction_outcome` plus every receipt; t
 
 By kind of throw: a plain throw 2.94-3.02 Tgas; the night's first throw (firestarter) 2.89-3.00; the crossing throw (last log) 2.92-3.01; a throw that first collects a settled night 3.28-3.32. The settle with catch-up settled a lit night and a cold night in one call. The aborted attempts measured two more: three nights (a lit night and two cold ones) at 3.21 and 3.49 Tgas. The deployment with `new` burnt 24.69 Tgas.
 
-These are well inside the README's bounds (`settle` with `max_catchup` 30 under 10 Tgas, `collect` under 3) and about a tenth of the 30 Tgas attached.
+These are well inside the README's bounds (`settle` with `max_catchup` 30 about 10.5 Tgas, `collect` under 3) and about a tenth of the 30 Tgas attached.
 
 ### The icons
 
