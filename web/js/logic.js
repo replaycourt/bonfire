@@ -529,6 +529,64 @@ export function streakRisk(m) {
   return { streak: m.streak, need, text: `The streak of ${nights} ends at dawn unless ${fmtInt(need)} more wood lands.` }
 }
 
+// ---- the player's own dawn ----------------------------------------------------------------------
+
+/**
+ * The line under the player's wood once they have wood on tonight's pile, or a throw on its way:
+ * the time to dawn and their wood, so they know when their result lands. `tab` is the same
+ * countdown for the tab title while the tab is hidden. Null without wood tonight.
+ */
+export function dawnLine(m, pendingWood = 0n) {
+  const wood = (m?.myWood ?? 0n) + big(pendingWood)
+  if (!m || wood <= 0n) return null
+  const w = fmtEmber(wood, m.dec)
+  if (m.due) return { due: true, when: 'Dawn', what: `lighting the fire with your ${w} wood…`, tab: 'Dawn' }
+  const left = fmtCountdown(m.msLeft)
+  return { due: false, when: `Dawn in ${left}`, what: `your ${w} wood ${m.myWood > 0n ? 'on the pile' : 'on its way to the pile'}`, tab: `${left} to dawn` }
+}
+
+/**
+ * The chime at the player's dawn: armed (with the night) while their wood waits for dawn, rung once
+ * when that night's dawn comes, whether the clock shows it first or the settled state does. Wood
+ * that never landed (a refused throw) disarms it without a sound.
+ */
+export function dawnCue(armed, night, dawn) {
+  if (dawn && !dawn.due) return { armed: night, ring: false }
+  if (armed != null && (dawn?.due || night > armed)) return { armed: null, ring: true }
+  return { armed: dawn ? armed : null, ring: false }
+}
+
+/** The tab's title: the player's result or their countdown while the tab is hidden, else `base`. */
+export function tabTitle(base, { hidden = false, dawn = null, result = null } = {}) {
+  if (!hidden) return base
+  if (result) return `${result} · ${base}`
+  if (dawn) return `${dawn.tab} · ${base}`
+  return base
+}
+
+/**
+ * Who has played so far, as the contract counts it: its founders (the demo bots among them, as the
+ * page labels them) and the accounts that claimed kindling. Kindling goes only to an account that
+ * never held EMBER, so each claim is another account. Accounts that only received EMBER by transfer
+ * are not counted. `meKindled`: the player is one of the claims.
+ */
+export function headcount({ founders = [], labels = {}, kindlingClaims = 0, meKindled = false }) {
+  const ids = founders.map((f) => f?.account_id ?? f)
+  const isBot = (a) => (labels && Object.hasOwn(labels, a)) || /^demo-bot-/.test(a)
+  const bots = ids.filter(isBot).length
+  const otherFounders = ids.length - bots
+  const claims = Math.max(0, Number(kindlingClaims) || 0)
+  const n = (k, one, many) => `${fmtInt(k)} ${k === 1 ? one : many}`
+  const parts = []
+  if (bots) parts.push(n(bots, 'labelled demo bot', 'labelled demo bots'))
+  if (otherFounders) parts.push(n(otherFounders, 'other founding account', 'other founding accounts'))
+  const mine = meKindled && claims > 0 ? (claims === 1 ? ': you' : ', you among them') : ''
+  const other = otherFounders ? '' : 'other '
+  const last = claims > 0 ? n(claims, `${other}account that claimed kindling`, `${other}accounts that claimed kindling`) + mine : parts.length ? 'no other account yet' : 'nobody yet'
+  const text = `Players so far: ${parts.length ? `${parts.join(', ')} and ${last}` : last}`
+  return { bots, otherFounders, claims, text }
+}
+
 /** How many of its nights the page keeps in a player's tally. */
 export const TALLY_KEEP = 200
 

@@ -87,6 +87,13 @@ body.cold .quarters, body.offline .quarters { display: none; }
 .banner-text { color: var(--ink-2); font-size: 0.95rem; }
 .banner-names { color: var(--ink-3); font-size: 0.8rem; margin-top: 2px; }
 .banner-names:empty { display: none; }
+
+/* ---- the replay of last night: tonight's card and clock step back, a tag names both nights ---- */
+.replay-tag { position: absolute; z-index: 5; left: 50%; bottom: 84px; transform: translateX(-50%); width: max-content; max-width: min(520px, 90%); padding: 7px 16px; border-radius: 999px; text-align: center; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-2); background: rgba(20, 12, 20, 0.72); border: 1px solid rgba(255, 200, 120, 0.3); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); animation: fade-up 0.45s ease-out; }
+.clock, .tonight > * { transition: opacity 0.5s ease; }
+body.replay-on .clock, body.replay-on .tonight > * { opacity: 0.38; }
+.replay-now { color: var(--ink-3); }
+.replay-now::before { content: " · "; }
 @keyframes rise { from { opacity: 0; transform: translate(-50%, 12px) scale(0.96); } }
 
 .strip-row { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-radius: 999px; background: rgba(10, 8, 18, 0.55); border: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
@@ -106,6 +113,7 @@ body.cold .quarters, body.offline .quarters { display: none; }
 /* ---- cards ---- */
 .card { background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45); backdrop-filter: blur(14px) saturate(1.1); -webkit-backdrop-filter: blur(14px) saturate(1.1); }
 .card-title { font-size: 0.74rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; color: var(--amber); margin-bottom: 10px; }
+.card-night { color: var(--ink-3); }
 .hero .card { position: absolute; z-index: 4; top: 50%; transform: translateY(-46%); }
 .tonight { left: 28px; width: 296px; }
 .you { right: 28px; width: 336px; }
@@ -179,6 +187,14 @@ body.cold .quarters, body.offline .quarters { display: none; }
 .status { margin: 8px 0 0; min-height: 1.2em; font-size: 0.82rem; color: var(--ink-3); }
 .status.busy::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; background: var(--flame); box-shadow: 0 0 10px var(--flame); animation: pulse 0.9s ease-in-out infinite; vertical-align: 1px; }
 .my-tally { margin: 10px 0 0; font-size: 0.8rem; line-height: 1.4; color: var(--ink-2); }
+.headcount { margin-top: 6px; line-height: 1.35; }
+
+/* ---- the player's own dawn, once they have wood on tonight's pile ---- */
+.dawn-line { margin: 12px 0 0; padding: 8px 12px; border-radius: 12px; font-size: 0.86rem; line-height: 1.35; color: var(--ink-2); background: rgba(255, 160, 70, 0.08); border: 1px solid rgba(255, 200, 120, 0.3); font-variant-numeric: tabular-nums; }
+.dawn-line::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--flame); box-shadow: 0 0 10px var(--flame); animation: pulse 1.6s ease-in-out infinite; vertical-align: 1px; }
+.dawn-line b { color: var(--amber); }
+.dawn-line span { display: inline-block; }
+.dawn-line.due b { color: #ffe1a0; }
 
 /* ---- a first visit: three steps, numbered on the controls they point at ---- */
 /* on wide screens a card of its own under "Your wood", so nothing above it moves when it appears */
@@ -344,7 +360,10 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
   .hero .card { position: relative; top: auto; left: auto; right: auto; transform: none; width: auto; margin: 0 12px; }
   .you { order: 1; margin-top: 2px !important; z-index: 6; }
   .banner { top: 132px; bottom: auto; }
-  body.banner-on .rules, body.banner-on .risk { opacity: 0; }
+  body.banner-on .rules, body.banner-on .risk, body.replay-on .rules { opacity: 0; }
+  .replay-tag { top: 132px; bottom: auto; padding: 7px 18px; border-radius: 16px; }
+  .replay-tag span { display: block; }
+  .replay-now::before { content: none; }
   .tonight { order: 2; margin-top: 12px !important; }
   .intro { position: static; margin: 0 0 12px; padding: 12px 14px 10px; border-radius: 14px; background: rgba(255, 210, 120, 0.06); box-shadow: none; }
   .story { grid-template-columns: 1fr; padding: 22px 12px 4px; gap: 12px; }

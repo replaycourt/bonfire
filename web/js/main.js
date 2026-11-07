@@ -78,6 +78,10 @@ const S = {
   tally: null,
   tallySaved: null,
   tallyBusy: false,
+  baseTitle: document.title, // the tab's title while it is visible
+  dawn: null, // the player's own dawn line (L.dawnLine), while they have wood tonight
+  dawnArmed: null, // the night whose dawn rings the chime (L.dawnCue)
+  tabResult: null, // the player's result, kept in the tab title until the tab is looked at again
 }
 
 let client
@@ -102,6 +106,7 @@ async function boot() {
     client = new MockClient({ scene: params.get('scene') || 'live', nightMs: Math.max(20, nightS) * 1000, contract: CONTRACT })
     U.$('mock-badge').hidden = false
     document.title = 'MOCK · ' + document.title
+    S.baseTitle = document.title
   } else {
     client = new Client()
     client.rpc.onHostChange = (h) => console.info('rpc host', h)
@@ -130,7 +135,11 @@ async function boot() {
   loadHistory()
   loadIcon()
   setInterval(tickClock, 250)
-  document.addEventListener('visibilitychange', () => schedule(document.hidden ? 8000 : 300))
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) S.tabResult = null
+    renderTitle()
+    schedule(document.hidden ? 8000 : 300)
+  })
   scheduleHelp(25_000)
 }
 
@@ -315,6 +324,11 @@ function replayLastNight(last) {
   if (pile <= 0n || target <= 0n || S.state?.last?.night !== last.night) return false
   S.replayed = true
   S.replaying = true
+  // the scene plays last night: tonight's card and clock step back, and a tag names both nights
+  document.body.classList.add('replay-on')
+  U.setText('replay-last', `Replay of night ${last.night}`)
+  U.setText('replay-now', `tonight is night ${S.state.night}`)
+  U.$('replay-tag').hidden = false
   const w = (u) => L.fmtWhole(u, S.cfg.config.decimals)
   scene.cheer(`Night ${last.night}, replayed in five seconds`)
   const t0 = performance.now()
@@ -342,8 +356,10 @@ function replayLastNight(last) {
           showBanner(last, result)
           U.setText('banner-kicker', `Replay of last night · Night ${last.night} · ${result?.word ?? last.outcome}`)
         }
+        U.$('replay-tag').hidden = true
         setTimeout(() => {
           S.replaying = false
+          document.body.classList.remove('replay-on')
           render()
           showIntro()
         }, 3000)
@@ -466,6 +482,10 @@ async function onSettled(last) {
     /* the banner falls back to the outcome alone */
   }
   showBanner(last, result)
+  if (result?.mine && document.hidden) {
+    S.tabResult = result.title
+    renderTitle()
+  }
   if (result?.mine) endIntro() // the first night is played: the banner is the third step
   loadHistory()
   loadIcon()
@@ -482,6 +502,7 @@ function showBanner(last, result) {
   // a night the player threw on gets a card to save, and the banner stays longer to find it
   S.card = result?.mine ? result : null
   U.$('banner-card').hidden = !S.card
+  U.$('replay-tag').hidden = true
   el.hidden = false
   document.body.classList.add('banner-on')
   clearTimeout(S.bannerTimer)
@@ -758,6 +779,7 @@ function render() {
   U.$('meter-fill').style.setProperty('--p', `${(Math.min(1, m.pct) * 100).toFixed(1)}%`)
   U.$('meter').classList.toggle('reached', m.reached)
   U.$('meter').setAttribute('aria-valuenow', String(Math.round(m.pct * 100)))
+  U.setText('tonight-night', ` · Night ${m.night}`)
   U.setText('pile-num', w(m.pile))
   U.setText('target-num', w(m.target))
   U.setText('throwers', String(m.throwers))
@@ -802,6 +824,29 @@ function tickClock() {
     refreshEstimate()
   }
   renderIntro()
+  renderDawn(now)
+}
+
+/** The player's own dawn: the line under their wood, the tab title while hidden, a chime at dawn. */
+function renderDawn(now) {
+  const m = S.model
+  const dawn = L.dawnLine({ ...m, msLeft: Math.max(0, m.end - now), due: m.due || now >= m.end }, queue?.pendingWood() ?? 0n)
+  U.$('dawn-line').hidden = !dawn
+  if (dawn) {
+    U.setText('dawn-when', dawn.when)
+    U.setText('dawn-what', dawn.what)
+    U.$('dawn-line').classList.toggle('due', dawn.due)
+  }
+  const cue = L.dawnCue(S.dawnArmed, m.night, dawn)
+  S.dawnArmed = cue.armed
+  if (cue.ring) sound.chime() // silent unless sound is on (Sound plays nothing while off)
+  S.dawn = dawn
+  renderTitle()
+}
+
+function renderTitle() {
+  const t = L.tabTitle(S.baseTitle, { hidden: document.hidden, dawn: S.dawn, result: S.tabResult })
+  if (document.title !== t) document.title = t
 }
 
 function renderYou() {
@@ -924,6 +969,9 @@ function renderRecords() {
   U.setText('rec-tallest', L.big(r.tallest_fire) > 0n ? L.fmtWhole(r.tallest_fire, dec) : '–')
   U.setText('rec-minted', L.fmtEmber(r.total_minted, dec, { compact: true }))
   U.setText('rec-burned', L.fmtEmber(r.total_burned, dec, { compact: true }))
+  const hc = L.headcount({ founders: S.cfg.founders ?? [], labels: BOTS, kindlingClaims: r.kindling_claims, meKindled: !!S.holder?.kindled })
+  U.setText('headcount', hc.text)
+  U.$('headcount').hidden = false
   U.setText('tally', `${r.nights_lit} lit · ${r.nights_smoked} smoked · ${r.nights_cold} cold · ${r.kindling_claims} kindling claim${r.kindling_claims === 1 ? '' : 's'}`)
 }
 

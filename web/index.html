@@ -50,6 +50,7 @@
         </div>
         <p class="rules"><b>Throw wood before dawn.</b> <span>Enough wood: everyone gets their wood back plus new EMBER.</span> <span>Too little: some of it goes up in smoke.</span> <span>Wood on a cold pile earns most.</span></p>
       </div>
+      <div id="replay-tag" class="replay-tag" hidden><span id="replay-last"></span><span class="replay-now" id="replay-now"></span></div>
       <div id="banner" class="banner" role="status" hidden>
         <span class="banner-kicker" id="banner-kicker"></span>
         <b class="banner-title" id="banner-title"></b>
@@ -64,7 +65,7 @@
     </div>
 
     <aside class="card tonight" id="tonight" aria-labelledby="tonight-title">
-      <h2 class="card-title" id="tonight-title">Tonight</h2>
+      <h2 class="card-title" id="tonight-title">Tonight<span class="card-night" id="tonight-night"></span></h2>
       <div class="need">
         <b id="need-big">–</b>
         <span id="need-small">Reading tonight’s fire from NEAR testnet…</span>
@@ -88,6 +89,7 @@
         <div><dt>Hearth</dt><dd id="hearth">–</dd></div>
       </dl>
       <p class="fine" id="kindling-left"></p>
+      <p class="fine headcount" id="headcount" title="Counted by the contract: its founders (the demo bots, labelled on this page) and the accounts that claimed kindling, which an account can do once. Accounts that only received EMBER by transfer are not counted." hidden></p>
     </aside>
 
     <aside class="card you" id="you" aria-labelledby="you-title">
@@ -119,6 +121,7 @@
         <div><span>Your wood tonight</span><b id="my-wood">0</b></div>
         <div><span>If it catches</span><b id="my-share">–</b></div>
       </div>
+      <p class="dawn-line" id="dawn-line" hidden><b id="dawn-when"></b> · <span id="dawn-what"></span></p>
       <p class="my-tally" id="my-tally" title="Counted by this page from what it saw of your account" hidden></p>
       <p class="note" id="note" hidden></p>
       <p class="status" id="status" aria-live="polite"></p>

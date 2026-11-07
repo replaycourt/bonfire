@@ -380,6 +380,56 @@ test('streak at risk: only in the last quarter, with a streak running and the pi
   assert.equal(risk([E(300), 0n, 0n, 0n], {}, 1_900_000), null, 'dawn has come')
 })
 
+test('own dawn: once the player has wood tonight, the line counts down to dawn and names the wood', () => {
+  const line = (h, now = 1_750_000, pendingWood) => L.dawnLine(L.deriveModel({ cfg, state: state(), holder: h, nowMs: now }), pendingWood)
+  const threw = holder({ wood_night: 3, wood: E(50).toString(), wood_by_window: [{ window: 1, wood: E(50).toString() }] })
+  assert.equal(line(holder()), null, 'no wood tonight, no line')
+  assert.equal(line(holder({ wood_night: 2, wood: E(50).toString() })), null, 'wood of an earlier night is not tonight')
+  assert.deepEqual(line(threw), { due: false, when: 'Dawn in 2:30', what: 'your 50 wood on the pile', tab: '2:30 to dawn' })
+  assert.equal(line(holder(), 1_750_000, E(25)).what, 'your 25 wood on its way to the pile', 'a throw not yet in the views')
+  assert.equal(line(threw, 1_750_000, E(25)).what, 'your 75 wood on the pile')
+  assert.deepEqual(line(threw, 1_900_000), { due: true, when: 'Dawn', what: 'lighting the fire with your 50 wood…', tab: 'Dawn' })
+})
+
+test('own dawn: the chime rings once at the dawn of the night the player threw on, never otherwise', () => {
+  const waiting = { due: false, tab: '0:05 to dawn' }
+  const dawn = { due: true, tab: 'Dawn' }
+  let c = L.dawnCue(null, 3, waiting)
+  assert.deepEqual(c, { armed: 3, ring: false })
+  c = L.dawnCue(c.armed, 3, dawn)
+  assert.deepEqual(c, { armed: null, ring: true }, 'the clock reaches dawn')
+  assert.deepEqual(L.dawnCue(c.armed, 3, dawn), { armed: null, ring: false }, 'once')
+  assert.deepEqual(L.dawnCue(3, 4, null), { armed: null, ring: true }, 'the settled state came before the clock showed dawn')
+  assert.deepEqual(L.dawnCue(3, 3, null), { armed: null, ring: false }, 'a refused throw: no wood landed, no chime')
+  assert.deepEqual(L.dawnCue(null, 3, dawn), { armed: null, ring: false }, 'a page opened after dawn does not ring')
+  assert.deepEqual(L.dawnCue(null, 3, null), { armed: null, ring: false })
+})
+
+test('own dawn: the tab title carries the countdown or the result only while the tab is hidden', () => {
+  const base = 'Bonfire · EMBER'
+  const dawn = { due: false, tab: '2:30 to dawn' }
+  assert.equal(L.tabTitle(base, { hidden: false, dawn, result: 'Up in smoke' }), base)
+  assert.equal(L.tabTitle(base, { hidden: true, dawn }), '2:30 to dawn · Bonfire · EMBER')
+  assert.equal(L.tabTitle(base, { hidden: true, dawn: { due: true, tab: 'Dawn' } }), 'Dawn · Bonfire · EMBER')
+  assert.equal(L.tabTitle(base, { hidden: true, dawn, result: 'The fire caught!' }), 'The fire caught! · Bonfire · EMBER')
+  assert.equal(L.tabTitle(base, { hidden: true }), base)
+})
+
+test('headcount: the demo bots by their labels, and every other account by its kindling claim', () => {
+  const labels = { ['a'.repeat(64)]: 'demo-bot-early-a', ['b'.repeat(64)]: 'demo-bot-early-b' }
+  const founders = Object.keys(labels).map((account_id) => ({ account_id, amount: '1' }))
+  const live = L.headcount({ founders, labels, kindlingClaims: 3 })
+  assert.equal(live.text, 'Players so far: 2 labelled demo bots and 3 other accounts that claimed kindling')
+  assert.deepEqual([live.bots, live.otherFounders, live.claims], [2, 0, 3])
+  assert.equal(L.headcount({ founders, labels, kindlingClaims: 3, meKindled: true }).text, 'Players so far: 2 labelled demo bots and 3 other accounts that claimed kindling, you among them')
+  assert.equal(L.headcount({ founders, labels, kindlingClaims: 1, meKindled: true }).text, 'Players so far: 2 labelled demo bots and 1 other account that claimed kindling: you')
+  assert.equal(L.headcount({ founders, labels, kindlingClaims: 0 }).text, 'Players so far: 2 labelled demo bots and no other account yet')
+  // founders that are not bots are named as such (the mock world has made-up founders)
+  const mixed = [{ account_id: 'demo-bot-late.bonfire.testnet' }, { account_id: 'c'.repeat(64) }, { account_id: 'd'.repeat(64) }]
+  assert.equal(L.headcount({ founders: mixed, labels: {}, kindlingClaims: 2 }).text, 'Players so far: 1 labelled demo bot, 2 other founding accounts and 2 accounts that claimed kindling')
+  assert.equal(L.headcount({ founders: [], kindlingClaims: 0 }).text, 'Players so far: nobody yet')
+})
+
 test('credit from night(n): the contract credit_of numbers of tests/ritual.rs', () => {
   // a lit night: 12,000 / 8,000 / 4,000 wood on a 20,000 target; 4 % minted, 10 % of it to the hearth
   const ws = L.windowWeights([12_000n, 8_000n, 4_000n, 0n], 20_000n, 40_000, 2_500)

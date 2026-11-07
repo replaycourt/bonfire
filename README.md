@@ -40,7 +40,7 @@ The track asks for a memecoin whose meme does something, with every rule fixed a
 1. **Open the page.** First it replays last night in five seconds: the pile rises against its target, then dawn and the banner (*Replay of last night*). See tonight's fire, the countdown to dawn with the night's four quarters, and the *Tonight* card: how much wood the fire still needs, the pile against the target, what wood counts right now (×4 on an empty pile), the streak, the firestarter and the last log. The five demo bots appear by name (`demo-bot-early-a` and so on). On a first visit, three numbered steps follow the replay (*Get kindling*, *Throw before dawn*, *See it catch at dawn* with its countdown), and the same numbers mark the button, the chips and the clock until dawn or until you hide them.
 2. **Tap *Get kindling*.** See 200 EMBER arrive from the hearth, the contract's treasury. There is no wallet prompt: your browser made an ed25519 key, and that key's implicit account holds your EMBER. The hearth pays 4 claims a night; when they are gone the page counts down to the next dawn.
 3. **Pick a chip (for example 25, 50, 100 or *All in*).** Before you tap, the hint says what that wood counts now and about how much new EMBER it brings if the fire catches. Tap, and see your log fly onto the pile, the meter climb, and *Your wood tonight* and *If it catches* fill in.
-4. **Wait for dawn.** See the banner: *Night N · LIT ×n, The fire caught!* with your wood back plus your share, or *Up in smoke* with what burned, and the night's firestarter and last log.
+4. **Wait for dawn.** A line under your wood counts down to your dawn, in the tab title too while the tab is hidden, with a short chime at dawn if sound is on. See the banner: *Night N · LIT ×n, The fire caught!* with your wood back plus your share, or *Up in smoke* with what burned, and the night's firestarter and last log.
 5. **Tap *Collect*,** or simply throw again: the next throw collects first. Your balance already counted the credit, as `ft_balance_of` does; collecting writes it into your account.
 6. **Scroll down and tap *Proof*.** See the last nights as flames, smoke puffs and cold rings, the supply night by night, the records, and the coin's face as the contract draws it. *Proof* shows the contract, its 0 access keys, the code hash checked against this repository, and every transaction this tab sent.
 
@@ -166,7 +166,7 @@ It needs Ed25519 in WebCrypto: Chrome 137+, Safari 17+ or Firefox 130+. The page
 **Tests.**
 
 ```sh
-node --test 'web/test/*.test.mjs'       # 90 tests: page logic, signing, RPC fallback, config; about 5 s
+node --test 'web/test/*.test.mjs'       # 94 tests: page logic, signing, RPC fallback, config; about 5 s
 node --test 'scripts/test/*.test.mjs'   # 7 tests: relay nonce retries, bot key secret; offline, about 50 s
 cd contract && cargo test               # 121 tests; cold build about 8.5 minutes, then about 1 s
 scripts/judge-checks.sh                 # 6 read-only checks of the live contract; about 5 s
