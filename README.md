@@ -2,6 +2,8 @@
 
 # Bonfire
 
+[![CI](https://github.com/replaycourt/bonfire/actions/workflows/ci.yml/badge.svg)](https://github.com/replaycourt/bonfire/actions/workflows/ci.yml)
+
 **A memecoin you light together.** Every night the holders of EMBER build one bonfire. Throw EMBER on the pile before dawn. Enough wood and the fire catches: everyone gets their wood back plus new EMBER, and the wood that went on the cold pile earns the most. Too little and part of the pile goes up in smoke. Every dawn is a small cliff-hanger: does it catch, who lit it, who threw the last log, how long does the streak run? Every rule lives in one NEAR contract that has no access keys, so nobody can change it. On testnet a night lasts five minutes.
 
 **Play now:** https://replaycourt.github.io/bonfire/web/ (testnet, EMBER has no value, no wallet, no sign-up)
@@ -155,7 +157,7 @@ cd contract && cargo test               # 121 tests; cold build about 8.5 minute
 scripts/judge-checks.sh                 # 6 read-only checks of the live contract; about 5 s
 ```
 
-Node 22 or newer, no install. `cargo test` uses the toolchain pinned in `contract/rust-toolchain.toml` (Rust 1.95.0); the tests run in the SDK's mock VM, with no sandbox and no network.
+CI runs the three test suites on every push, rebuilds the wasm on Linux and writes in its job summary whether the hash matches `contract/WASM_SHA256`. Node 22 or newer, no install. `cargo test` uses the toolchain pinned in `contract/rust-toolchain.toml` (Rust 1.95.0); the tests run in the SDK's mock VM, with no sandbox and no network.
 
 **Build.** `cd contract && ./build.sh --check` rebuilds the wasm with cargo-near 0.22 and compares its sha256 with `contract/WASM_SHA256`, the code hash on chain. It also fails if the wasm carries machine paths or exports an unexpected method. A cold rebuild on a 4-core laptop (macOS, x86_64) took about 5 minutes and matched.
 
