@@ -798,6 +798,7 @@ async function openProof() {
       deployed: S.deployed,
       owed: S.state ? { amount: L.fmtEmber(S.state.owed, S.cfg.config.decimals), nights: S.state.owed_nights } : null,
       cheats: { canAct: Boolean(client?.canAct), kindlingTwice: S.model?.kindle.why === 'claimed' },
+      lockTx: DEPLOYMENT.lockTx ?? null,
     })
   U.openDrawer('Proof', draw())
   if (S.keys === null && client) {

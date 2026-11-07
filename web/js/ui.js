@@ -290,7 +290,7 @@ export function ledgerCheckHtml(c, { decimals, symbol }) {
 
 // ---- proof drawer -------------------------------------------------------------------------------
 
-export function proofHtml({ mock, deployment, contract, keys, codeHash, expectedHash = null, account, gasAccount, rpcHost, txs, explorer, deployed, owed, cheats = null }) {
+export function proofHtml({ mock, deployment, contract, keys, codeHash, expectedHash = null, account, gasAccount, rpcHost, txs, explorer, deployed, owed, cheats = null, lockTx = null }) {
   const link = (path, text) => (mock ? `<code>${esc(text)}</code>` : `<a href="${esc(explorer)}/${path}" target="_blank" rel="noopener">${esc(text)}</a>`)
   const keyLine =
     keys == null
@@ -324,6 +324,7 @@ export function proofHtml({ mock, deployment, contract, keys, codeHash, expected
       <li><span>Contract</span><span>${link(`address/${contract}`, contract)}${deployment === 'stage' ? ' <span class="muted">(staging)</span>' : ''}</span></li>
       <li><span>Its keys</span><span>${keyLine}</span></li>
       <li><span>Code hash</span><span>${hashLine}</span></li>
+      ${lockTx && !mock ? `<li><span>Locked</span><span>${link(`txns/${lockTx}`, `${lockTx.slice(0, 10)}…`)} <span class="muted">· the last key deleted 16 s into night 1; with no key since, the code cannot have changed</span></span></li>` : ''}
       <li><span>You</span><span>${link(`address/${account}`, account)}</span></li>
       <li><span>Gas paid by</span><code>${esc(gasAccount)}</code></li>
       <li><span>RPC</span><code>${esc(rpcHost)}</code></li>

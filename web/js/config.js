@@ -24,6 +24,8 @@ export const DEPLOYMENTS = {
     gasAccount: 'bonfire-gas.testnet',
     /** Base58 sha256 of the deployed wasm, as `view_account` reports it (contract/WASM_SHA256). */
     codeHash: 'EWcaLXmKxqtKqWGRE1NAnZQTq7i2q87JVUkhYi39mg5z',
+    /** The transaction that deleted the contract's last access key, 16 s into night 1 (docs/testnet-launch.md). */
+    lockTx: '8aK7rAMFFu6VkA1VbsVRvFjWRS6BP6gT9fWDBAxFT9KF',
     // PUBLIC on purpose: function-call keys of bonfire-gas.testnet that may only call `act`, `settle`
     // and `collect` on bonfire-coin.testnet, 0.5 NEAR allowance each for the first eight and 2 NEAR for
     // the eight added on 2026-11-07 (see the comment at the top).
