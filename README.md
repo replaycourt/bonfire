@@ -149,7 +149,7 @@ It needs Ed25519 in WebCrypto: Chrome 137+, Safari 17+ or Firefox 130+. The page
 **Tests.**
 
 ```sh
-node --test 'web/test/*.test.mjs'       # 76 tests: page logic, signing, RPC fallback, config; about 5 s
+node --test 'web/test/*.test.mjs'       # 83 tests: page logic, signing, RPC fallback, config; about 5 s
 node --test 'scripts/test/*.test.mjs'   # 7 tests: relay nonce retries, bot key secret; offline, about 50 s
 cd contract && cargo test               # 121 tests; cold build about 8.5 minutes, then about 1 s
 scripts/judge-checks.sh                 # 6 read-only checks of the live contract; about 5 s
