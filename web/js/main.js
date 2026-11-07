@@ -10,6 +10,7 @@ import { Scene } from './scene.js'
 import { Sound } from './audio.js'
 import * as L from './logic.js'
 import * as U from './ui.js'
+import { saveCard } from './card.js'
 
 const params = new URLSearchParams(location.search)
 const MOCK = params.get('mock') === '1'
@@ -41,6 +42,7 @@ const S = {
   codeHash: null, // the deployed code's hash, as view_account reports it
   deployed: true,
   icon: null,
+  card: null, // the night shown in the banner, when the player threw on it (Save your card)
   selected: null, // index of the throw chip the hint describes
   estimate: null, // { key, est }
   estimating: null,
@@ -142,6 +144,11 @@ function wire() {
   })
   U.$('btn-kindle').addEventListener('click', onKindle)
   U.$('btn-collect').addEventListener('click', onCollect)
+  U.$('banner-card').addEventListener('click', async () => {
+    if (!S.card) return
+    const ok = await saveCard({ result: S.card, icon: S.icon, symbol: S.cfg.config.symbol, decimals: S.cfg.config.decimals }).catch(() => false)
+    U.toast(ok ? 'Your card is saved. Share it anywhere.' : 'The card could not be made in this browser.', ok ? 'ok' : 'warn')
+  })
   U.$('btn-older').addEventListener('click', showOlder)
   U.$('drawer-close').addEventListener('click', U.closeDrawer)
   U.$('drawer-body').addEventListener('click', (e) => {
@@ -327,13 +334,16 @@ function showBanner(last, result) {
   U.setText('banner-title', result?.title ?? (last.outcome === 'LIT' ? 'The fire caught!' : last.outcome === 'SMOKED' ? 'Up in smoke' : 'A cold night'))
   U.setText('banner-text', result?.text ?? '')
   U.setText('banner-names', result?.names ?? '')
+  // a night the player threw on gets a card to save, and the banner stays longer to find it
+  S.card = result?.mine ? result : null
+  U.$('banner-card').hidden = !S.card
   el.hidden = false
   document.body.classList.add('banner-on')
   clearTimeout(S.bannerTimer)
   S.bannerTimer = setTimeout(() => {
     el.hidden = true
     document.body.classList.remove('banner-on')
-  }, 11_000)
+  }, S.card ? 25_000 : 11_000)
 }
 
 async function loadHistory() {
