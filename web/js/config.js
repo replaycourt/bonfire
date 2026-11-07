@@ -25,7 +25,8 @@ export const DEPLOYMENTS = {
     /** Base58 sha256 of the deployed wasm, as `view_account` reports it (contract/WASM_SHA256). */
     codeHash: 'EWcaLXmKxqtKqWGRE1NAnZQTq7i2q87JVUkhYi39mg5z',
     // PUBLIC on purpose: function-call keys of bonfire-gas.testnet that may only call `act`, `settle`
-    // and `collect` on bonfire-coin.testnet, 0.5 NEAR allowance each (see the comment at the top).
+    // and `collect` on bonfire-coin.testnet, 0.5 NEAR allowance each for the first eight and 2 NEAR for
+    // the eight added on 2026-11-07 (see the comment at the top).
     gasKeys: [
       { public_key: 'ed25519:7gRDwLNzBtmVw7Z2jMdEMAumEqemvwszy5u2jg1uoAsW', private_key: 'ed25519:2k5FVjkbrDJsDAVW8T4rRLrCkEroeYdeRPgjiuqcH9tua7VNuJ9hmisFj3ErrrXA4YxsFYKiszRpmZ2HGpguzwj2' },
       { public_key: 'ed25519:2FKVMYpKaCKkyDSrhSu5JW4pH86uNXcJNSYaajwwWiDn', private_key: 'ed25519:2s45nZwsVtgKkDuEypsMuht6G2rSQfxR2zU38C5DbLo7RgKCZ6DTMGHKK2jmC7eGLNzptGT19vCCz75D7wJVRRdi' },
@@ -35,6 +36,14 @@ export const DEPLOYMENTS = {
       { public_key: 'ed25519:C5XwcmSsLMai5KVKWq179fT4pzgw63RMj5mjuZvfTLda', private_key: 'ed25519:65ZJ2EaFYEyAtM2BgCXvRY9nriTeBp5HfRVpPoDyFXd4gjpuzXo59y7fi4Z2CB1Q4maSrVvRFfL7zLMXdCMJ284' },
       { public_key: 'ed25519:4pkBHwv3X5vpewnNoNAks5CUxQi6Ri5JVtoL62Xx9Rqd', private_key: 'ed25519:5ixEcYp35LVZFBEB9tnApEUsCgFi64Fr5wvthYBsEARQtSVLeLvccbmYNiTWSHqaPscqWkA5ttQVErBmvfJTFasm' },
       { public_key: 'ed25519:9fYhnTKiRuzwGrWrLPkVTEdBRVkWzwzUqs6dWhuZU3K8', private_key: 'ed25519:49jMt39Vg9zsLqbEHyYkJEBW7MsuJnPeYMpWQHkX9MNigT6z3ZgqpbsB7rsttNSekBLrFNpB6j6JjMBHp7iqpQz' },
+      { public_key: 'ed25519:97nXfySaW4kfxpGfXCL6RKTMG9gQuycY5ZwwJg1HACaE', private_key: 'ed25519:37MSKsakYPziDvERU4TxCYPGg8xoejywV8sy4ckrjT7iLY7FyWDGzrXqQWbHAXagS3Nk5JcTsqorJFTwkM1KvCwC' },
+      { public_key: 'ed25519:6UHJWjm9VPWKc37ARquyNabaMuc17xGo93oVPvbgX7fj', private_key: 'ed25519:5qDes4Ln1mGrNkDaydNjdPBGQrkyqSSC8wUUSSHpaiv7sCFRtvqEK1WXpNTcFc4fCoYpifkwhPsSHJkZhaC9s79f' },
+      { public_key: 'ed25519:2qk4BFoLrhG9xgHG5WT8U1ysNMAsn5RuwKpWmgM59Kdq', private_key: 'ed25519:35da3aXB4xVXBVLw2VAU2ss37npLPtr1V4TC3EgASEMiKLMg7N9QrcCk2iishBTy1w7RqjEPKkwaPH3nCXBgACTR' },
+      { public_key: 'ed25519:F4nkgmJNYbMgG2ZzJQsucZXNGx8MELhHt481yb3rpEiL', private_key: 'ed25519:TvjmMZWjJY9KVgeYEH6aCZQKqdV5UqmhAkRJ4EkoVd6ZwH8i8FQVZ9K5M6qKUq3aUiMezY1VTvXbaFXxobzdQMe' },
+      { public_key: 'ed25519:9KnXmNNKb2oR95cjVrjFFWG7uSsLqP1JwZAWKGFfHQPo', private_key: 'ed25519:xLKfEYiH6dxe1jc7XjV9p5PEcLtWC5Km7BzGwHqnRxTEZ9g71xapRp4tYaSZMQVSApsDGe7ujN8hVDMNxWDmGCm' },
+      { public_key: 'ed25519:GtoMz4uC4ULEFXrBt2maPX9zd69oiLQE6rFR6Nvtiy2K', private_key: 'ed25519:5eXEXkiNgvQSM5gEY1JUYv6fJFEsPSwaJpm9jNeMBL6EynHKqsgPRmrTS8pjS7Ty5Q9urpiJeMetFA8GyrHHeyD5' },
+      { public_key: 'ed25519:CE7wuv4JCmBFixjtcbM5tBCPeRzJJokfK6JwX5EWXtcU', private_key: 'ed25519:4dq4hY6jXBpNXAYdcfQ42rfTShKx6Voi4jgsiz7uoWijzeYqtksdhVnwiXSfcBhrzxQiMqbsYw7cUDEZNaVDXH4x' },
+      { public_key: 'ed25519:yuGzdvSTEtbt9MpzzjNpGcz4sqQ2tJcvUo1sie6L53v', private_key: 'ed25519:3GjPzZJtjCXp7Y85VaUJ7cpngGqtBtPSLiHfyPwkwv8zVaNWtEiCf3K4BLJqfwDzHi8P8kFcAVTgEzKXBwLhXDf6' },
     ],
     /** The demo bots (the founders of the testnet demo), so the page labels them as bots. */
     bots: {

@@ -81,7 +81,7 @@ test('the staging deployment is ready to play: its gas pool and its code hash ar
 test('the final deployment is the default and complete: its gas pool, the committed wasm hash, five labelled bots', () => {
   const final = DEPLOYMENTS.final
   assert.equal(pickDeployment('').contract, 'bonfire-coin.testnet')
-  assert.equal(final.gasKeys.length, 8)
+  assert.equal(final.gasKeys.length, 16)
   const pinned = readFileSync(join(WEB, '..', 'contract', 'WASM_SHA256'), 'utf8').trim()
   assert.equal(Buffer.from(b58decode(final.codeHash)).toString('hex'), pinned, 'codeHash is contract/WASM_SHA256 in base58')
   assert.deepEqual(Object.values(final.bots).sort(), ['demo-bot-early-a', 'demo-bot-early-b', 'demo-bot-idle', 'demo-bot-late', 'demo-bot-steady'])

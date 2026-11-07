@@ -8,7 +8,7 @@ The final contract is `bonfire-coin.testnet`. It runs the committed wasm with th
 | Code hash | `EWcaLXmKxqtKqWGRE1NAnZQTq7i2q87JVUkhYi39mg5z` (base58 of `contract/WASM_SHA256` c8bdff7e…7bfd) |
 | Night 1 began | 2026-11-06 09:50:27.743 UTC (`genesis_ms` 1793958627743) |
 | Access keys | none: `view_access_key_list` returns `"keys":[]` |
-| Relay | `bonfire-gas.testnet`, 8 function-call keys for `act`, `settle`, `collect` |
+| Relay | `bonfire-gas.testnet`, 16 function-call keys for `act`, `settle`, `collect` (8 at launch, 8 more on 2026-11-07) |
 
 ## The launch values
 
@@ -48,6 +48,7 @@ The `testnet` block of `sim/params.json`, with two changes:
 | `lantern-row-stress2.testnet` | sent 6.32 NEAR to `bonfire-coin.testnet` | `4tujepv31DwSZ63juYC9Nuvs6ZbpWoryg3nm1dSjSNDc` |
 | `lantern-row-stress3.testnet` | sent 6.32 NEAR to `bonfire-coin.testnet` | `84wziPqP1V7hv3qkCwLYqR1LQiRqQYs6HC3Ya6FFRo8s` |
 | `bonfire-gas.testnet` | 8 function-call keys for `bonfire-coin.testnet` (`act`, `settle`, `collect`, 0.5 NEAR allowance each), one transaction | `Fudx76KhN2BKVTmdw9EfDSe3UrgfbFeLpbpSNxmrWfkn` |
+| `bonfire-gas.testnet` | 2026-11-07: 8 more function-call keys, same methods, 2 NEAR allowance each, so the relay lasts through judging (the first eight had 3.6 NEAR left at about 0.4 NEAR a day) | `5rUR76kDS91yA9mubUfFwoFErJKcK7bvgxGwPY6bQnqj` |
 
 `bonfire-coin.testnet` then held 22.64 NEAR. The two Lantern Row accounts each keep their contract's storage stake (about 3.59 NEAR) plus 0.06 NEAR; they had nothing more to give, so the 25-28 NEAR first aimed at was not reachable from them. `lantern-row-stress.testnet` was not touched (9.99 NEAR). `bonfire-gas.testnet` held 9.96 NEAR, above 8, so it needed no top-up.
 
