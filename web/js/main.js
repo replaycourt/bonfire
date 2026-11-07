@@ -278,7 +278,7 @@ function replayLastNight(last) {
       reached,
       pileText: p > 0n ? `${w(p)} on the pile` : '',
       pileShort: p > 0n ? w(p) : '',
-      targetText: reached ? `✓ ${w(target)} reached` : `${w(target)} needed`,
+      targetText: reached ? `✓ ${w(target)} reached` : `target ${w(target)}`,
     })
     if (f < 1) return void requestAnimationFrame(step)
     scene.outcome(last.outcome)
@@ -564,7 +564,7 @@ function render() {
     reached: m.reached,
     pileText: m.pile > 0n ? `${w(m.pile)} on the pile` : '',
     pileShort: m.pile > 0n ? w(m.pile) : '',
-    targetText: m.reached ? `✓ ${w(m.target)} reached` : `${w(m.target)} needed`,
+    targetText: m.reached ? `✓ ${w(m.target)} reached` : `target ${w(m.target)}`,
   })
   sound.setHeat(scene.heat)
 
