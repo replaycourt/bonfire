@@ -29,7 +29,7 @@
 
 ## How to play
 
-1. **Open the page.** See tonight's fire, the countdown to dawn with the night's four quarters, and the *Tonight* card: how much wood the fire still needs, the pile against the target, what wood counts right now (×4 on an empty pile), the streak, the firestarter and the last log. The five demo bots appear by name (`demo-bot-early-a` and so on).
+1. **Open the page.** First it replays last night in five seconds: the pile rises against its target, then dawn and the banner (*Replay of last night*). See tonight's fire, the countdown to dawn with the night's four quarters, and the *Tonight* card: how much wood the fire still needs, the pile against the target, what wood counts right now (×4 on an empty pile), the streak, the firestarter and the last log. The five demo bots appear by name (`demo-bot-early-a` and so on).
 2. **Tap *Get kindling*.** See 200 EMBER arrive from the hearth, the contract's treasury. There is no wallet prompt: your browser made an ed25519 key, and that key's implicit account holds your EMBER. The hearth pays 4 claims a night; when they are gone the page counts down to the next dawn.
 3. **Pick a chip (for example 25, 50, 100 or *All in*).** Before you tap, the hint says what that wood counts now and about how much new EMBER it brings if the fire catches. Tap, and see your log fly onto the pile, the meter climb, and *Your wood tonight* and *If it catches* fill in.
 4. **Wait for dawn.** See the banner: *Night N · LIT ×n, The fire caught!* with your wood back plus your share, or *Up in smoke* with what burned, and the night's firestarter and last log.
