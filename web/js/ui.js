@@ -427,17 +427,20 @@ export function howHtml(cfg) {
 
 let lastFocus = null
 export function openDrawer(title, html) {
-  lastFocus = document.activeElement
+  if (!drawerOpen()) lastFocus = document.activeElement
   setText('drawer-title', title)
   $('drawer-body').innerHTML = html
   $('drawer').hidden = false
   $('drawer-backdrop').hidden = false
+  // toasts step aside from an open drawer (style.css)
+  document.body.classList.add('drawer-on')
   $('drawer-close').focus()
 }
 
 export function closeDrawer() {
   $('drawer').hidden = true
   $('drawer-backdrop').hidden = true
+  document.body.classList.remove('drawer-on')
   lastFocus?.focus?.()
 }
 

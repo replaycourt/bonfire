@@ -88,9 +88,16 @@ const sound = new Sound(store)
 
 async function boot() {
   scene = new Scene(U.$('scene'), { reducedMotion: reduced })
-  // a first visit shows last night as a short film: tonight's cards wait off screen until it is over
+  // a first visit shows last night as a short film: nothing of tonight (clock, rules, cards) shows
+  // until it is over, so the live night never flashes up first. The page starts in `film-wait`
+  // (index.html); a visit without the film lets tonight in at once.
   S.filmWanted = !reduced && !store.get(REPLAY_KEY)
-  if (S.filmWanted) document.body.classList.add('film-wait')
+  if (!S.filmWanted) document.body.classList.remove('film-wait')
+  else {
+    // its title is up while last night is read from the chain, so the wait is not an empty stage
+    U.setText('film-kicker', 'Replay of last night')
+    U.$('film').hidden = false
+  }
   layout()
   scene.setNight({ progress: 0.35, pct: 0, reached: false, pileText: '', targetText: '' })
   scene.start()
@@ -155,6 +162,7 @@ async function boot() {
 function bootFailed(e) {
   console.info('boot', e?.message ?? e)
   document.body.classList.remove('film-wait')
+  U.$('film').hidden = true
   if (!MOCK && notDeployed(e)) {
     S.phase = 'cold'
     S.deployed = false
@@ -244,7 +252,13 @@ function wire() {
   U.$('banner-card').addEventListener('click', () => onShare(S.card))
   U.$('btn-share').addEventListener('click', () => onShare(S.myCard))
   U.$('banner-go').addEventListener('click', () => S.film?.end())
-  U.$('film-skip').addEventListener('click', () => S.film?.end())
+  U.$('film-skip').addEventListener('click', () => {
+    if (S.film) return S.film.end()
+    // skipped before it began: no film this visit or the next
+    S.filmWanted = false
+    store.set(REPLAY_KEY, String(Date.now()))
+    filmOver()
+  })
   U.$('btn-older').addEventListener('click', showOlder)
   U.$('drawer-close').addEventListener('click', U.closeDrawer)
   U.$('drawer-body').addEventListener('click', (e) => {
@@ -258,6 +272,7 @@ function wire() {
     if (e.key !== 'Escape') return
     if (U.drawerOpen()) U.closeDrawer()
     else if (S.film) S.film.end()
+    else if (document.body.classList.contains('film-wait')) U.$('film-skip').click()
     else if (S.intro === 'on' && U.$('intro').contains(document.activeElement)) endIntro()
   })
   renderSound()
@@ -334,7 +349,7 @@ async function poll() {
       // a first visit: a newcomer who has not hidden the steps before, and who can play
       S.introWanted = store.get(INTRO_KEY) === null && S.canSign && client.canAct && !S.holder?.held
       // after this poll's render, which makes the model the steps read
-      setTimeout(() => (S.filmWanted && replayLastNight(state.last)) || filmOver(), S.filmWanted ? 500 : 0)
+      setTimeout(() => (S.filmWanted && replayLastNight(state.last)) || filmOver(), 0)
     } else if (lastNight > S.lastSettled) {
       S.lastSettled = lastNight
       onSettled(state.last)
@@ -487,7 +502,10 @@ function replayLastNight(last) {
 
 /** The film is over (or never played): tonight's cards come in, then the first visit's steps. */
 function filmOver() {
+  const waited = document.body.classList.contains('film-wait')
   document.body.classList.remove('film-wait')
+  if (!S.film) U.$('film').hidden = true // its title waited for a film that did not come
+  if (waited && !S.replaying) render() // tonight's pile, which the scene kept back while it waited
   layout()
   showIntro()
 }
@@ -590,7 +608,10 @@ async function resolveTally() {
 
 function renderTally() {
   const sum = S.cfg ? L.tallySummary(S.tally, S.cfg.config.decimals, S.cfg.config.symbol) : null
-  U.$('my-tally').hidden = !sum
+  // the tally of settled nights steps aside while the player's wood is on tonight's pile (the dawn
+  // line speaks then), and comes back, counted anew, once that night has settled
+  const tonight = (S.model?.myWood ?? 0n) + (queue?.pendingWood() ?? 0n) > 0n
+  U.$('my-tally').hidden = !sum || tonight
   if (sum) U.setText('my-tally', sum.text)
 }
 
@@ -815,6 +836,7 @@ function onThrow(choice) {
   scene.throwFrom(client.identity.account, '+' + L.fmtEmber(amount, m.dec))
   sound.thud()
   renderYou()
+  renderTally()
 }
 
 function onKindle() {
@@ -946,7 +968,8 @@ function render() {
   const me = client.identity?.account
   const f = (u) => L.fmtEmber(u, m.dec)
   const w = (u) => L.fmtWhole(u, m.dec)
-  if (!S.replaying) scene.setNight({
+  // while the film plays or waits to, the scene belongs to last night
+  if (!S.replaying && !document.body.classList.contains('film-wait')) scene.setNight({
     progress: m.progress,
     pct: m.pct,
     reached: m.reached,

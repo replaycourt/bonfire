@@ -105,8 +105,10 @@ body.cold .quarters, body.offline .quarters { display: none; }
 
 /* ---- a first visit: last night plays as a short film, with nothing of tonight on screen ---- */
 .clock, .rules, .hero .card { transition: opacity 0.6s ease, visibility 0.6s; }
-body.film-wait .hero .card, body.replay-on .hero .card, body.replay-on .clock, body.replay-on .rules { opacity: 0; visibility: hidden; }
-.film { position: absolute; z-index: 6; top: 62px; left: 50%; transform: translateX(-50%); width: min(560px, 92%); display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8); animation: fade-up 0.5s ease-out; }
+body.film-wait .hero .card, body.replay-on .hero .card, body.film-wait .clock, body.film-wait .rules, body.replay-on .clock, body.replay-on .rules { opacity: 0; visibility: hidden; }
+.film { position: absolute; z-index: 6; top: 62px; left: 50%; transform: translateX(-50%); width: min(560px, 92%); display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8); animation: film-in 0.5s ease-out; }
+/* its own rise: fade-up's transform would drop the centring translate while it runs */
+@keyframes film-in { from { opacity: 0; transform: translate(-50%, 6px); } }
 .film-kicker { font-size: 0.76rem; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; color: var(--amber); }
 .film-title { font-size: 2.4rem; line-height: 1.08; font-weight: 900; letter-spacing: -0.01em; }
 .film-sub { font-size: 1rem; color: var(--ink-2); font-weight: 600; text-wrap: balance; }
@@ -379,6 +381,8 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
 @media (min-width: 901px) {
   .toast { top: 70px; bottom: auto; left: auto; right: 28px; transform: none; max-width: 336px; animation-name: drop-t; }
   @keyframes drop-t { from { opacity: 0; transform: translateY(-8px); } }
+  /* beside an open drawer, not over it */
+  body.drawer-on .toast { right: calc(min(440px, 100%) + 20px); }
 }
 
 /* ---- medium screens: cards narrower ---- */
@@ -396,6 +400,8 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
   #btn-how { display: none; }
   .ghost, .icon-btn { padding: 7px 11px; }
   .toast { left: 12px; right: 12px; bottom: max(16px, env(safe-area-inset-bottom)); transform: none; max-width: none; text-align: center; animation-name: rise-p; }
+  /* the drawer covers the screen: its own lines say what a toast would (the cheat's answer) */
+  body.drawer-on .toast { display: none; }
   @keyframes rise-p { from { opacity: 0; transform: translateY(8px); } }
   /* small phones: "Get kindling" waits at the bottom of the screen until the card scrolls up to it */
   .kindle { position: sticky; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 2; }
@@ -420,6 +426,9 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
   body.banner-on .clock, body.stamp-on .clock { opacity: 1; visibility: visible; }
   .stamp { top: 150px; font-size: clamp(52px, 15vw, 76px); padding: 4px 20px 9px; border-width: 4px; border-radius: 18px; }
   .film { top: 58px; }
+  /* the film has the whole screen: the stage fills it, and the cards below it wait out of the flow */
+  body.film-wait .stage, body.replay-on .stage { height: max(540px, 100svh); }
+  body.film-wait .hero .card, body.replay-on .hero .card { display: none; }
   .film-title { font-size: 1.75rem; }
   .film-sub { font-size: 0.9rem; max-width: 330px; }
   .sound-word { display: none; }

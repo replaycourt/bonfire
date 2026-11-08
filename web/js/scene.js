@@ -978,7 +978,8 @@ export class Scene {
 
   /**
    * The target's label, on an opaque pill: right of the line if there is room before the card, else
-   * over the line's right end if the flames stay clear of it, else not at all (the card says it too).
+   * over the line's right end if the flames stay clear of it, else under it, mirroring the pile's
+   * label at the left end (phones, where the fire fills the stage's width).
    * Hidden while a night burns or smokes.
    */
   drawTargetLabel() {
@@ -1009,6 +1010,7 @@ export class Scene {
       const flameEdge = cx + this.flameW() * 1.05
       const flameTip = this.flameBase() - this.flameH()
       if (end - w > flameEdge + 6 || flameTip > y - 4 * u) this.pill(text, end, y - 18 * u, bg, fg, 12, 'right', 1)
+      else this.pill(text, end, y + 18 * u, bg, fg, 12, 'right', 1)
     }
     ctx.restore()
   }
