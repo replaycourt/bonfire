@@ -10,7 +10,7 @@ The track asks for a memecoin whose meme does something, with every rule fixed a
 2. **The target follows the community:** +7 % after a lit night, −10 % after a miss. Every dawn is a small cliff-hanger: does it catch, who lit it, who threw the last log? The streak is on the page and on the coin's own icon, which the contract draws.
 3. **One NEP-141 contract with 0 access keys** since 16 seconds into night 1: nobody can change a rule, and every rule is readable in `config()`.
 
-**Play, no wallet:** https://replaycourt.github.io/bonfire/web/ (testnet, EMBER has no value; tap *Get kindling*, throw, wait for dawn: a testnet night lasts five minutes, at launch a day) · **Video, 80 s:** https://x.com/replaycourt/status/2119022580682146056 (or the [mp4](https://replaycourt.github.io/bonfire/web/media/bonfire-demo.mp4)) · **Judging:** [JUDGE.md](JUDGE.md), a five-minute path, and `scripts/judge-checks.sh`, six read-only checks of the live contract in about 5 seconds.
+**Play, no wallet:** https://replaycourt.github.io/bonfire/web/ (testnet, EMBER has no value; tap *Get kindling*, throw, wait for dawn: a testnet night lasts five minutes, at launch a day) · **Video, 87 s:** https://x.com/replaycourt/status/2119524880865521730 (an earlier cut, before the redesign, as [mp4](https://replaycourt.github.io/bonfire/web/media/bonfire-demo.mp4)) · **Judging:** [JUDGE.md](JUDGE.md), a five-minute path, and `scripts/judge-checks.sh`, six read-only checks of the live contract in about 5 seconds.
 
 | You can check | How |
 |---|---|
