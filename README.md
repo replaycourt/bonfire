@@ -181,9 +181,9 @@ CI runs the three test suites on every push and rebuilds the wasm on Linux, an I
 
 ## Hackathon note
 
-Built at NEAR HACKATHON for the `memecoins` track. The relay and signing code (`web/js/near.js`, `web/js/chain.js`, `scripts/near-lite.mjs`) is adapted from the author's other, independent entry.
+Built at NEAR HACKATHON for the `memecoins` track. The relay and signing code (`web/js/near.js`, `web/js/chain.js`, `scripts/near-lite.mjs`) is adapted from the author's earlier project Lantern Row, https://github.com/replaycourt/lantern-row.
 
-The same author also entered the independent project Lantern Row, https://github.com/replaycourt/lantern-row, in this hackathon.
+The same author also entered the independent project Hat Tip, https://github.com/replaycourt/hat-tip (peer thanks paid out through a Sputnik DAO, `social` track), in this hackathon.
 
 ## Credits
 
