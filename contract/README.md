@@ -72,6 +72,13 @@ exists. A key whose account does not exist and whose action is refused leaves no
 night is signed, a delayed or replayed message can never land on a later night. A relayer can
 withhold a signed throw until its night ends; it then fails with nothing lost.
 
+**The relay.** Anyone can send a signed action to `act`; the signature, not the sender, decides
+whose EMBER moves. The page sends it through a public gas pool: sixteen function-call keys on
+`bonfire-gas.testnet`, listed in `web/js/config.js`, each allowed only `act`, `settle` and `collect`
+on the contract, with an allowance of 0.5 or 2 NEAR. A key holder can relay only what a player
+signed, and spending the allowance pauses free play without touching anyone's EMBER. Wallet users
+skip the relay: `throw_wood`, or `ft_transfer_call` with msg `"throw:<night>"` (below).
+
 Why not NEP-366 meta-transactions: a delegate action is checked against an access key of the
 sender's account on chain, so every visitor would first need an account created for its key, paid
 by a sponsor. With `act` the visitor is only a NEP-141 balance inside the contract, which checks
