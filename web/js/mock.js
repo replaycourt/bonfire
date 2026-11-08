@@ -4,7 +4,7 @@
 // the same rounding and the same views), the demo bots of sim/params.json and a few made-up players
 // throwing on a schedule, and a client with the same methods as the real one. Nothing here touches
 // the network. It exists so every state of the page can be seen without a deployment:
-// `&scene=first|early|close|lit|smoke|cold|live`, `&night=<seconds>`.
+// `&scene=first|newcomer|early|close|lit|smoke|cold|live`, `&night=<seconds>`.
 import { BP, big, clockNight, hashSeed, windowAt, windowWeights } from './logic.js'
 
 const DEC = 18
@@ -636,13 +636,14 @@ export class MockWorld {
 // ---- presets for screenshots ----------------------------------------------------------------------
 
 /**
- * scene: first (an empty first visit), early, close (near the target, late in the night), lit /
+ * scene: first (an empty first visit), newcomer (a first visit to a running world, no EMBER yet), early, close (near the target, late in the night), lit /
  * smoke / cold (a night that just ended, so the page settles it and plays the outcome), live (a
  * running world, the default).
  */
 export function buildMock({ scene = 'live', nightMs = 300_000, now = Date.now(), me }) {
   const P = {
     first: { nights: 0, at: 0.05, pct: 0, crowd: 0, mine: null },
+    newcomer: { nights: 30, at: 0.22, pct: 0.3, crowd: 4, mine: null },
     early: { nights: 26, at: 0.12, pct: 0.22, crowd: 3, mine: { fund: 460, wood: 0 } },
     close: { nights: 33, at: 0.86, pct: 0.9, crowd: 8, mine: { fund: 520, wood: 120 } },
     lit: { nights: 39, at: 1.004, pct: 1.16, crowd: 9, mine: { fund: 600, wood: 180 } },

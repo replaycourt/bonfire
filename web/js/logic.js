@@ -724,6 +724,20 @@ export function supplySeries(history, decimals) {
   return (history ?? []).map((r) => ({ night: r.night, supply: toWhole(r.supply, decimals), outcome: r.outcome }))
 }
 
+/**
+ * What each of the last `count` settled nights did to the supply, for the chart: EMBER minted (a lit
+ * night) and burned (smoke, and the hearth's share), in whole EMBER, with the streak it reached.
+ */
+export function flowSeries(history, decimals, count = 60) {
+  let streak = 0
+  return (history ?? [])
+    .map((r) => {
+      streak = r.outcome === 'LIT' ? streak + 1 : 0
+      return { night: r.night, outcome: r.outcome, word: outcomeWord(r.outcome, streak), streak, mint: toWhole(r.minted, decimals), burn: toWhole(r.burned, decimals), supply: toWhole(r.supply, decimals) }
+    })
+    .slice(-count)
+}
+
 /** `from` for history(): the oldest of the last `count` settled nights. */
 export function historyFrom(openNight, count) {
   return Math.max(1, openNight - count)
@@ -846,13 +860,22 @@ export function nightResult(nightView, holder, me, decimals, symbol, labels = {}
 // ---- people around the fire ---------------------------------------------------------------------
 
 /**
- * Height of the moon's path as a share of the stage (the scene lifts it by up to 4.5 % of the stage
- * at midnight): no higher than `base`, and low enough that the moon and its disc (up to about 24 px)
- * pass under the clock and the rules instead of behind them. `stage` and `text` are DOM rects.
+ * The moon's path across the night, in stage pixels: it keeps to the side of the sky, right of the
+ * clock and the rules and, on wide screens, above "Your wood", so it never passes behind text, a card,
+ * the banner or the fire. `text` is the sky text's rect and `card` the right-hand card's (null on
+ * phones, where the cards sit under the scene), both relative to the stage; `top` is the header's
+ * lowest point and `r` the moon's radius. The moon rises by `lift` at midnight.
  */
-export function moonY(base, stage, text) {
-  if (!stage?.height || !text) return base
-  return Math.max(base, (text.bottom - stage.top + 30) / stage.height + 0.045)
+export function moonPath({ W, H, text = null, card = null, top = 60, r = 20 }) {
+  if (!card) {
+    // phones: under the sky text, at the right edge, clear of the fire and the target's label
+    const y = Math.min(Math.max(H * 0.42, (text?.bottom ?? 0) + r + 16), H * 0.62)
+    return { x0: W * 0.82, x1: Math.max(W * 0.82, W * 0.95 - r), y, lift: 0 }
+  }
+  const x0 = Math.min(Math.max(W * 0.74, (text?.right ?? 0) + r + 24), W - r - 16)
+  const x1 = Math.max(x0, Math.min(W * 0.9, card.right - r - 12))
+  const room = Math.max(0, card.top - top)
+  return { x0, x1, y: top + room / 2, lift: Math.max(0, Math.min(H * 0.03, room / 2 - r - 10)) }
 }
 
 /**
@@ -948,3 +971,58 @@ export async function helpCollectRound({ candidates, tried, max, pendingOf, coll
 export function safeIcon(icon) {
   return typeof icon === 'string' && /^data:image\/svg\+xml[,;]/.test(icon) && icon.length < 20_000 ? icon : null
 }
+
+// ---- first visit, dawn, sound ---------------------------------------------------------------------
+
+/**
+ * localStorage that never throws: reading gives null and writing does nothing where the browser
+ * refuses it (private windows, blocked site data). `getStorage` is called inside the try, since
+ * merely touching `localStorage` can throw.
+ */
+export function safeStore(getStorage) {
+  const s = () => {
+    try {
+      return typeof getStorage === 'function' ? getStorage() : getStorage
+    } catch {
+      return null
+    }
+  }
+  return {
+    get(k) {
+      try {
+        return s()?.getItem(k) ?? null
+      } catch {
+        return null
+      }
+    },
+    set(k, v) {
+      try {
+        s()?.setItem(k, String(v))
+        return !!s()
+      } catch {
+        return false
+      }
+    },
+  }
+}
+
+/**
+ * Last night plays back once per browser: on a first visit (`seen` is the stored flag), with motion
+ * allowed, for a settled night that caught or smoked with wood on it, before the open night.
+ */
+export function replayWanted({ seen = null, reduced = false, last = null, night = null }) {
+  if (seen || reduced || !last || !['LIT', 'SMOKED'].includes(last.outcome)) return false
+  if (big(last.pile) <= 0n || big(last.target) <= 0n) return false
+  return night == null || Number(last.night) < Number(night)
+}
+
+/** The stamp in the sky at dawn: the word the coin's face writes for the night. */
+export function stampFor(outcome, word = '') {
+  if (outcome === 'LIT') return { text: /^LIT ×\d+$/.test(word ?? '') ? word : 'LIT', kind: 'lit' }
+  if (outcome === 'SMOKED') return { text: 'SMOKED', kind: 'smoked' }
+  if (outcome === 'COLD') return { text: 'COLD', kind: 'cold' }
+  return null
+}
+
+/** Sound comes on with the first tap on "Get kindling", unless the player chose on or off before. */
+export const soundOnFirstTap = (choice) => choice !== 'on' && choice !== 'off'

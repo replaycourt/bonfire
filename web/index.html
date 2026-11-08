@@ -4,21 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://test.rpc.fastnear.com https://near-testnet.drpc.org; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
-<title>Bonfire · EMBER</title>
+<title>Bonfire · a memecoin you light together</title>
 <meta name="description" content="A memecoin whose holders build a bonfire together every night. Throw EMBER on the pile before dawn: enough wood and everyone gets it back plus new EMBER; too little and some of it goes up in smoke.">
 <meta name="theme-color" content="#07060d">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Bonfire · EMBER">
-<meta property="og:description" content="Throw wood before dawn. Enough wood: everyone gets it back plus new EMBER. Too little: some of it goes up in smoke.">
+<meta property="og:site_name" content="Bonfire">
+<meta property="og:title" content="Bonfire: a memecoin you light together">
+<meta property="og:description" content="Every five minutes a night ends. Throw EMBER on the pile before dawn: enough wood and it catches, everyone gets theirs back plus new EMBER. Play free, no wallet, on NEAR testnet.">
 <meta property="og:image" content="https://replaycourt.github.io/bonfire/web/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bonfire: a big fire at night with people around it, and the words: a memecoin you light together.">
 <meta property="og:url" content="https://replaycourt.github.io/bonfire/web/">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Bonfire · EMBER">
-<meta name="twitter:description" content="Throw wood before dawn. Enough wood: everyone gets it back plus new EMBER. Too little: some of it goes up in smoke.">
+<meta name="twitter:title" content="Bonfire: a memecoin you light together">
+<meta name="twitter:description" content="Throw EMBER on the pile before dawn. Enough wood and the fire catches: everyone gets theirs back plus new EMBER. Play free, no wallet.">
 <meta name="twitter:image" content="https://replaycourt.github.io/bonfire/web/og.jpg">
+<meta name="twitter:image:alt" content="Bonfire: a big fire at night with people around it, and the words: a memecoin you light together.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/nunito-display.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -26,12 +30,12 @@
 
 <header class="top">
   <a class="brand" href="./" aria-label="Bonfire home">
-    <img id="coin-mini" class="coin-mini" src="favicon.svg" alt="">
+    <img id="coin-mini" class="coin-mini" src="coin.svg" alt="">
     <span class="word">Bonfire</span><span class="ticker">EMBER</span>
   </a>
   <nav class="top-actions" aria-label="Page">
     <button id="btn-how" class="ghost" type="button">How it works</button>
-    <button id="btn-sound" class="icon-btn" type="button" aria-pressed="false" aria-label="Sound is off"><span class="ico ico-sound off" aria-hidden="true"></span></button>
+    <button id="btn-sound" class="icon-btn sound-btn" type="button" aria-pressed="false" aria-label="Sound is off"><span class="ico ico-sound off" aria-hidden="true"></span><span class="sound-word" id="sound-word" aria-hidden="true">Sound off</span></button>
     <button id="btn-proof" class="ghost proof-btn" type="button"><span class="ico ico-proof" aria-hidden="true"></span><span>Proof</span></button>
   </nav>
 </header>
@@ -50,13 +54,22 @@
         </div>
         <p class="rules"><b>Throw wood before dawn.</b> <span>Enough wood: everyone gets their wood back plus new EMBER.</span> <span>Too little: some of it goes up in smoke.</span> <span>Wood on a cold pile earns most.</span></p>
       </div>
-      <div id="replay-tag" class="replay-tag" hidden><span id="replay-last"></span><span class="replay-now" id="replay-now"></span></div>
+      <div id="film" class="film" hidden>
+        <span class="film-kicker" id="film-kicker"></span>
+        <b class="film-title" id="film-title">Last night, in five seconds</b>
+        <span class="film-sub" id="film-sub">Wood piles up before dawn. Enough of it, and the fire catches.</span>
+        <button class="film-skip" id="film-skip" type="button">Skip <span aria-hidden="true">›</span></button>
+      </div>
+      <div id="stamp" class="stamp" aria-hidden="true" hidden></div>
       <div id="banner" class="banner" role="status" hidden>
         <span class="banner-kicker" id="banner-kicker"></span>
         <b class="banner-title" id="banner-title"></b>
         <span class="banner-text" id="banner-text"></span>
         <span class="banner-names" id="banner-names"></span>
-        <button class="banner-card" id="banner-card" type="button" hidden>Save your card</button>
+        <span class="banner-actions">
+          <button class="banner-card" id="banner-card" type="button" hidden>Share your card</button>
+          <button class="banner-go" id="banner-go" type="button" hidden>Play tonight <span aria-hidden="true">›</span></button>
+        </span>
       </div>
       <div class="strip-row">
         <span class="strip-label">Last nights <b id="strip-word"></b></span>
@@ -77,19 +90,21 @@
       <div class="meter-legend"><span><b id="pile-num">0</b> on the pile</span><span>target <b id="target-num">–</b></span></div>
       <div class="windows-head"><span>Wood counts now</span><b id="early">–</b></div>
       <div class="windows" id="windows" aria-label="Wood per quarter of the night"></div>
-      <p class="windows-rule">Wood on a cold pile earns most. Wood thrown in the same quarter shares its spot.</p>
       <p class="fine" id="window-closes"></p>
       <dl class="names">
         <div><dt>Firestarter</dt><dd id="firestarter">–</dd></div>
         <div><dt>Last log</dt><dd id="last-log">–</dd></div>
       </dl>
-      <dl class="facts">
-        <div><dt>Throwers</dt><dd id="throwers">–</dd></div>
-        <div><dt>Streak</dt><dd id="streak">–</dd></div>
-        <div><dt>Hearth</dt><dd id="hearth">–</dd></div>
-      </dl>
-      <p class="fine" id="kindling-left"></p>
-      <p class="fine headcount" id="headcount" title="Counted by the contract: its founders (the demo bots, labelled on this page) and the accounts that claimed kindling, which an account can do once. Accounts that only received EMBER by transfer are not counted." hidden></p>
+      <details class="more" id="more">
+        <summary>More about tonight</summary>
+        <dl class="facts">
+          <div><dt>Throwers</dt><dd id="throwers">–</dd></div>
+          <div><dt>Streak</dt><dd id="streak">–</dd></div>
+          <div><dt>Hearth</dt><dd id="hearth">–</dd></div>
+        </dl>
+        <p class="fine" id="kindling-left"></p>
+        <p class="fine headcount" id="headcount" title="Counted by the contract: its founders (the demo bots, labelled on this page) and the accounts that claimed kindling, which an account can do once. Accounts that only received EMBER by transfer are not counted." hidden></p>
+      </details>
     </aside>
 
     <aside class="card you" id="you" aria-labelledby="you-title">
@@ -101,7 +116,7 @@
       </div>
       <button id="btn-kindle" class="kindle" type="button" hidden>
         <span class="btn-title">Get kindling</span>
-        <span class="btn-sub" id="kindle-sub">free EMBER from the hearth, once</span>
+        <span class="btn-sub" id="kindle-sub">Start playing · free EMBER · no wallet</span>
       </button>
       <div class="throw-row" id="throw-row" role="group" aria-label="Throw wood"></div>
       <p class="throw-hint" id="throw-hint"></p>
@@ -123,6 +138,10 @@
       </div>
       <p class="dawn-line" id="dawn-line" hidden><b id="dawn-when"></b> · <span id="dawn-what"></span></p>
       <p class="my-tally" id="my-tally" title="Counted by this page from what it saw of your account" hidden></p>
+      <div class="my-card" id="my-card" hidden>
+        <span class="my-card-text"><b id="my-card-word"></b> <span id="my-card-line"></span></span>
+        <button class="share-btn" id="btn-share" type="button">Share your card</button>
+      </div>
       <p class="note" id="note" hidden></p>
       <p class="status" id="status" aria-live="polite"></p>
     </aside>
@@ -130,7 +149,8 @@
 
   <section class="story" id="story" aria-label="The story so far">
     <div class="card chart-card">
-      <div class="card-head"><h2>Supply</h2><span class="sub">EMBER in existence after each night, as change since the first night shown</span></div>
+      <div class="card-head"><h2>Minted and burned</h2><span class="sub">night by night: a lit night mints new EMBER, smoke burns some</span></div>
+      <div class="chart-meta"><span class="legend"><i class="sw mint" aria-hidden="true"></i>Minted <i class="sw burn" aria-hidden="true"></i>Burned</span><span class="supply-now" id="supply-now"></span></div>
       <div class="chart" id="chart"></div>
     </div>
     <div class="side-cards">
@@ -145,7 +165,7 @@
         <p class="tally" id="tally"></p>
       </div>
       <div class="card face">
-        <img id="coin-face" class="coin-face" src="favicon.svg" alt="The EMBER icon">
+        <img id="coin-face" class="coin-face" src="coin.svg" alt="The EMBER icon">
         <div>
           <h2>The coin's face</h2>
           <p>The contract draws it from its own state: last night's word and fire, and the last seven nights along the bottom. Every wallet that lists EMBER shows it.</p>

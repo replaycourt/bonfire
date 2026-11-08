@@ -1,23 +1,30 @@
 // A tiny WebAudio synth: a crackling fire, a thud for thrown wood, a roar for a lit night, a hiss for
-// smoke. Off by default; the speaker button turns it on (and the browser only allows it after a tap).
+// smoke. It comes on with the first tap on "Get kindling" (a tap is what browsers wait for before
+// they play anything), unless the player chose before; the speaker button turns it on and off, and
+// the choice is remembered.
 
 const STORE = 'bonfire:sound'
+const VOLUME = 0.6
 
 export class Sound {
-  constructor(storage = globalThis.localStorage) {
-    this.storage = storage
+  /** `store` is a { get, set } that never throws (logic.js safeStore), or null to remember nothing. */
+  constructor(store = null) {
+    this.store = store
     this.ctx = null
     this.master = null
-    this.on = storage?.getItem(STORE) === 'on'
+    const c = store?.get(STORE) ?? null
+    this.choice = c === 'on' || c === 'off' ? c : null // null: the player has not chosen
+    this.on = this.choice === 'on'
     this.crackleTimer = null
     this.heat = 0.3
   }
 
   setOn(on) {
     this.on = on
-    this.storage?.setItem(STORE, on ? 'on' : 'off')
+    this.choice = on ? 'on' : 'off'
+    this.store?.set(STORE, this.choice)
     if (on) this.enable()
-    if (this.master) this.master.gain.linearRampToValueAtTime(on ? 0.8 : 0, this.ctx.currentTime + 0.25)
+    if (this.master) this.master.gain.linearRampToValueAtTime(on ? VOLUME : 0, this.ctx.currentTime + 0.25)
     if (on) this.crackleLoop()
   }
 
@@ -26,7 +33,7 @@ export class Sound {
     try {
       this.ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)()
       this.master = this.ctx.createGain()
-      this.master.gain.value = this.on ? 0.8 : 0
+      this.master.gain.value = this.on ? VOLUME : 0
       this.master.connect(this.ctx.destination)
       this.noise = this.makeNoise()
       this.bed()

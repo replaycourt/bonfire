@@ -88,6 +88,9 @@ export const NETWORK = 'testnet'
 export const RPC_HOSTS = ['https://test.rpc.fastnear.com', 'https://near-testnet.drpc.org']
 export const EXPLORER = 'https://testnet.nearblocks.io'
 
+/** Where the page lives: printed on the share card and sent with a shared night. */
+export const PLAY_URL = 'https://replaycourt.github.io/bonfire/web/'
+
 /** Gas attached to `act`, `settle` and `collect` (the contract README advises 30 Tgas). */
 export const ACT_GAS = 30_000_000_000_000n
 export const SETTLE_GAS = 30_000_000_000_000n

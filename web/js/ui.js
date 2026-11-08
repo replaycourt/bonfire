@@ -124,10 +124,6 @@ export function renderWindows(el, win, now, { decimals }) {
 
 // ---- the supply chart ---------------------------------------------------------------------------
 
-/**
- * Supply after every settled night: one series, a 2 px line over a 10 % wash, three hairline
- * gridlines, a crosshair and a tooltip on hover and on arrow keys.
- */
 /** "+0.018 %": the change of v against base, with enough decimals to tell small moves apart. */
 export function pctChange(v, base) {
   const pct = base ? ((v - base) / base) * 100 : 0
@@ -137,53 +133,78 @@ export function pctChange(v, base) {
   return `${Number(text) === 0 ? '±' : pct > 0 ? '+' : '−'}${text} %`
 }
 
-export function renderChart(host, series, { symbol }) {
+/** The next round number at or above v (1, 2, 2.5, 5 times a power of ten), for the axis. */
+export function niceCeil(v) {
+  if (!(v > 0)) return 1
+  const p = 10 ** Math.floor(Math.log10(v))
+  return [1, 2, 2.5, 5, 10].map((m) => m * p).find((n) => n >= v - 1e-9)
+}
+
+const amount = (v) => v.toLocaleString('en-US', { maximumFractionDigits: v < 10 ? 2 : 1 })
+
+/**
+ * What the nights did to the supply: one column per night, EMBER minted above the line (a lit
+ * night) and burned below it (smoke, and the hearth's share), lit streaks as faint bands behind
+ * them; a tooltip on hover and on the arrow keys, and the numbers as a table for screen readers.
+ */
+export function renderFlows(host, series, { symbol }) {
   host.replaceChildren()
-  if (series.length < 2) {
+  if (!series.length) {
     const p = document.createElement('p')
     p.className = 'chart-empty'
-    p.textContent = series.length ? 'One night so far. The line starts tomorrow.' : 'No night has ended yet. The line starts at the first dawn.'
+    p.textContent = 'No night has ended yet. The bars start at the first dawn.'
     host.appendChild(p)
     return
   }
   const W = Math.max(280, host.clientWidth || 560)
-  const H = Math.max(190, Math.min(320, host.clientHeight || 190))
-  // The axis is zoomed to the line, so it is labelled as the change since the first night shown: a
-  // supply that moved by a few per mille must not look like a swing of half its size.
-  const base = series[0].supply
-  const tickText = (v) => pctChange(v, base)
-  const pad = { l: 70, r: 14, t: 14, b: 26 }
-  const xs = series.map((d) => d.night)
-  const ys = series.map((d) => d.supply)
-  let lo = Math.min(...ys)
-  let hi = Math.max(...ys)
-  const span = hi - lo || hi * 0.01 || 1
-  lo -= span * 0.08
-  hi += span * 0.08
-  const x = (n) => pad.l + ((n - xs[0]) / (xs[xs.length - 1] - xs[0])) * (W - pad.l - pad.r)
-  const y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (H - pad.t - pad.b)
-  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'chart-svg', tabindex: '0', role: 'img', 'aria-label': `${symbol} supply after each night, from night ${xs[0]} to night ${xs[xs.length - 1]}` }, host)
-  const ticks = [lo + (hi - lo) * 0.1, (lo + hi) / 2, hi - (hi - lo) * 0.1]
-  for (const v of ticks) {
-    svgEl('line', { x1: pad.l, x2: W - pad.r, y1: y(v), y2: y(v), class: 'grid' }, svg)
-    const t = svgEl('text', { x: pad.l - 8, y: y(v) + 4, class: 'axis', 'text-anchor': 'end' }, svg)
-    t.textContent = tickText(v)
+  const H = Math.max(200, Math.min(300, host.clientHeight || 200))
+  const pad = { l: 44, r: 8, t: 12, b: 24 }
+  const top = niceCeil(Math.max(...series.map((d) => d.mint)))
+  const bot = niceCeil(Math.max(...series.map((d) => d.burn)))
+  const plotH = H - pad.t - pad.b
+  const zero = pad.t + (plotH * top) / (top + bot)
+  const y = (v) => zero - (v / (top + bot)) * plotH
+  const slot = (W - pad.l - pad.r) / series.length
+  const bw = Math.max(2, Math.min(24, slot - 2))
+  const cx = (i) => pad.l + slot * (i + 0.5)
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'chart-svg', tabindex: '0', role: 'img', 'aria-label': `${symbol} minted and burned in each night, from night ${series[0].night} to night ${series[series.length - 1].night}` }, host)
+  // lit streaks of two nights or more, as faint bands
+  for (let i = 0; i < series.length; ) {
+    let j = i
+    while (j < series.length && series[j].outcome === 'LIT') j++
+    if (j - i >= 2) svgEl('rect', { x: pad.l + slot * i, y: pad.t, width: slot * (j - i), height: plotH, rx: 4, class: 'band' }, svg)
+    i = Math.max(j, i + 1)
   }
-  for (const [n, anchor] of [
-    [xs[0], 'start'],
-    [xs[xs.length - 1], 'end'],
+  for (const [v, label] of [
+    [top, `+${amount(top)}`],
+    [-bot, `−${amount(bot)}`],
   ]) {
-    const t = svgEl('text', { x: x(n), y: H - 6, class: 'axis', 'text-anchor': anchor }, svg)
-    t.textContent = `night ${n}`
+    svgEl('line', { x1: pad.l, x2: W - pad.r, y1: y(v), y2: y(v), class: 'grid' }, svg)
+    svgEl('text', { x: pad.l - 8, y: y(v) + 4, class: 'axis', 'text-anchor': 'end' }, svg).textContent = label
   }
-  const pts = series.map((d) => `${x(d.night).toFixed(1)},${y(d.supply).toFixed(1)}`)
-  svgEl('path', { d: `M${pts[0]} L${pts.join(' L')} L${x(xs[xs.length - 1]).toFixed(1)},${H - pad.b} L${pad.l},${H - pad.b} Z`, class: 'area' }, svg)
-  svgEl('path', { d: `M${pts.join(' L')}`, class: 'line' }, svg)
-  const last = series[series.length - 1]
-  svgEl('circle', { cx: x(last.night), cy: y(last.supply), r: 4, class: 'end-dot' }, svg)
-
-  const cross = svgEl('line', { y1: pad.t, y2: H - pad.b, class: 'cross', visibility: 'hidden' }, svg)
-  const dot = svgEl('circle', { r: 4.5, class: 'hover-dot', visibility: 'hidden' }, svg)
+  svgEl('text', { x: pad.l - 8, y: zero + 4, class: 'axis', 'text-anchor': 'end' }, svg).textContent = '0'
+  const hover = svgEl('rect', { y: pad.t, width: slot, height: plotH, rx: 4, class: 'hover-band', visibility: 'hidden' }, svg)
+  // a column grows from the line; its far end is rounded
+  const bar = (i, v, kind) => {
+    const h = Math.max(1.5, Math.abs(y(v) - zero))
+    const x0 = cx(i) - bw / 2
+    const x1 = x0 + bw
+    const r = Math.min(4, bw / 2, h)
+    const e = kind === 'mint' ? zero - h : zero + h
+    const k = kind === 'mint' ? r : -r
+    svgEl('path', { d: `M${x0},${zero} L${x0},${e + k} Q${x0},${e} ${x0 + r},${e} L${x1 - r},${e} Q${x1},${e} ${x1},${e + k} L${x1},${zero} Z`, class: `bar ${kind}` }, svg)
+  }
+  series.forEach((d, i) => {
+    if (d.mint > 0) bar(i, d.mint, 'mint')
+    if (d.burn > 0) bar(i, -d.burn, 'burn')
+  })
+  svgEl('line', { x1: pad.l, x2: W - pad.r, y1: zero, y2: zero, class: 'zero' }, svg)
+  for (const [i, anchor] of [
+    [0, 'start'],
+    [series.length - 1, 'end'],
+  ]) {
+    svgEl('text', { x: anchor === 'start' ? pad.l : W - pad.r, y: H - 6, class: 'axis', 'text-anchor': anchor }, svg).textContent = `night ${series[i].night}`
+  }
   const tip = document.createElement('div')
   tip.className = 'chart-tip'
   tip.hidden = true
@@ -192,35 +213,27 @@ export function renderChart(host, series, { symbol }) {
   const show = (i) => {
     index = Math.max(0, Math.min(series.length - 1, i))
     const d = series[index]
-    const cx = x(d.night)
-    cross.setAttribute('x1', cx)
-    cross.setAttribute('x2', cx)
-    cross.setAttribute('visibility', 'visible')
-    dot.setAttribute('cx', cx)
-    dot.setAttribute('cy', y(d.supply))
-    dot.setAttribute('visibility', 'visible')
+    hover.setAttribute('x', pad.l + slot * index)
+    hover.setAttribute('visibility', 'visible')
     tip.replaceChildren()
-    const v = document.createElement('b')
-    v.textContent = `${fmtInt(Math.round(d.supply))} ${symbol}`
-    const s = document.createElement('span')
-    s.textContent = `Night ${d.night} · ${d.outcome} · ${pctChange(d.supply, base)} since night ${xs[0]}`
-    tip.append(v, s)
+    const head = document.createElement('b')
+    head.textContent = `Night ${d.night} · ${d.word}`
+    const lines = [d.mint > 0 && `+${amount(d.mint)} ${symbol} minted`, d.burn > 0 && `−${amount(d.burn)} ${symbol} burned`, !d.mint && !d.burn && 'nothing minted or burned', `supply after: ${fmtInt(Math.round(d.supply))}`].filter(Boolean)
+    tip.append(head, ...lines.map((t) => Object.assign(document.createElement('span'), { textContent: t })))
     tip.hidden = false
     const scale = host.clientWidth / W || 1
-    tip.style.setProperty('--x', `${Math.round(cx * scale)}px`)
-    tip.classList.toggle('flip', cx * scale > host.clientWidth * 0.6)
+    const px = cx(index)
+    tip.style.setProperty('--x', `${Math.round(px * scale)}px`)
+    tip.classList.toggle('flip', px * scale > host.clientWidth * 0.6)
   }
   const hide = () => {
-    cross.setAttribute('visibility', 'hidden')
-    dot.setAttribute('visibility', 'hidden')
+    hover.setAttribute('visibility', 'hidden')
     tip.hidden = true
   }
   svg.addEventListener('pointermove', (e) => {
     const r = svg.getBoundingClientRect()
     const px = ((e.clientX - r.left) / r.width) * W
-    let best = 0
-    for (let i = 1; i < series.length; i++) if (Math.abs(x(series[i].night) - px) < Math.abs(x(series[best].night) - px)) best = i
-    show(best)
+    show(Math.floor((px - pad.l) / slot))
   })
   svg.addEventListener('pointerleave', hide)
   svg.addEventListener('focus', () => show(index))
@@ -229,20 +242,22 @@ export function renderChart(host, series, { symbol }) {
     if (e.key === 'ArrowLeft') show(index - 1)
     else if (e.key === 'ArrowRight') show(index + 1)
   })
-  // the same numbers as a table, for screen readers
+  // the same numbers as a table, for screen readers (in a box: a table grows to fit its cells)
+  const box = document.createElement('div')
+  box.className = 'sr-only'
   const table = document.createElement('table')
-  table.className = 'sr-only'
+  box.appendChild(table)
   const head = table.insertRow()
-  for (const h of ['Night', 'Outcome', `Supply (${symbol})`]) {
+  for (const h of ['Night', 'Outcome', `Minted (${symbol})`, `Burned (${symbol})`, `Supply after (${symbol})`]) {
     const th = document.createElement('th')
     th.textContent = h
     head.appendChild(th)
   }
-  for (const d of series.slice(-60)) {
+  for (const d of series) {
     const row = table.insertRow()
-    for (const v of [d.night, d.outcome, fmtInt(Math.round(d.supply))]) row.insertCell().textContent = String(v)
+    for (const v of [d.night, d.word, amount(d.mint), amount(d.burn), fmtInt(Math.round(d.supply))]) row.insertCell().textContent = String(v)
   }
-  host.appendChild(table)
+  host.appendChild(box)
 }
 
 // ---- the ledger ---------------------------------------------------------------------------------

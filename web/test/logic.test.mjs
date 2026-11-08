@@ -495,6 +495,9 @@ test('outcome words as the coin face writes them; the strip counts the streak', 
   assert.deepEqual(s.map((r) => r.word), ['SMOKED', 'LIT ×1', 'LIT ×2', 'LIT ×3', 'COLD'])
   assert.equal(s[1].pct, 1.05)
   assert.equal(L.supplySeries(rows, D)[6].supply, 1_000_006)
+  const flows = L.flowSeries(rows.map((r, i) => ({ ...r, minted: E(i).toString(), burned: E(r.outcome === 'SMOKED' ? 7 : 0).toString() })), D, 4)
+  assert.deepEqual(flows.map((f) => [f.night, f.word, f.mint, f.burn]), [[4, 'LIT ×1', 3, 0], [5, 'LIT ×2', 4, 0], [6, 'LIT ×3', 5, 0], [7, 'COLD', 6, 0]])
+  assert.equal(L.flowSeries(rows.map((r) => ({ ...r, burned: E(7).toString() })), D)[2].burn, 7, 'all of them by default (up to 60)')
   assert.equal(L.historyFrom(42, 24), 18)
   assert.equal(L.historyFrom(5, 24), 1)
 })
@@ -519,18 +522,21 @@ test('night result: the player credit, the names, and the words for each outcome
   assert.equal(cold.names, '')
 })
 
-test('the moon passes under the clock and the rules, never behind them', () => {
-  // desktop 1440 x 900: the text ends 228 px down; at midnight the scene lifts the moon by 4.5 % of 900
-  const y = L.moonY(0.32, { top: 0, height: 900 }, { bottom: 228 })
-  assert.ok(y * 900 - 0.045 * 900 - 24 > 228, 'the top of the moon clears the text at midnight')
-  assert.ok(y < 0.4)
-  // phone: a 540 px stage whose text ends 255 px down (the old 0.47 put the moon right behind it)
-  const p = L.moonY(0.47, { top: 60, height: 540 }, { bottom: 315 })
-  assert.ok(p * 540 - 0.045 * 540 - 24 > 255)
-  assert.ok(p * 540 < 324, 'still above the horizon at dusk and dawn')
-  // a tall stage keeps the designed height; no measurements, no change
-  assert.equal(L.moonY(0.32, { top: 0, height: 1100 }, { bottom: 150 }), 0.32)
-  assert.equal(L.moonY(0.32, null, null), 0.32)
+test('the moon keeps to the side of the sky: right of the text, above "Your wood", clear of the fire', () => {
+  // desktop 1440 x 900: the rules end at x 1040, the card spans 1076..1412 from y 300, the header ends at 60
+  const m = L.moonPath({ W: 1440, H: 900, text: { right: 1040, bottom: 228 }, card: { top: 300, right: 1412 }, top: 60, r: 21 })
+  assert.ok(m.x0 - 21 > 1040, 'never behind the rules')
+  assert.ok(m.x0 >= 0.74 * 1440 && m.x1 <= 0.9 * 1440 && m.x1 >= m.x0)
+  assert.ok(m.y + 21 < 300 && m.y - m.lift - 21 > 60, 'between the header and the card, also at midnight')
+  // a card that grew up to the header still leaves the moon between them, without a lift
+  const tight = L.moonPath({ W: 1280, H: 720, text: { right: 960, bottom: 230 }, card: { top: 120, right: 1262 }, top: 60, r: 20 })
+  assert.equal(tight.lift, 0)
+  assert.equal(tight.y, 90)
+  // phone: under the sky text, on the right, above the horizon (60 % of a 540 px stage)
+  const p = L.moonPath({ W: 390, H: 540, text: { right: 370, bottom: 270 }, card: null, r: 14 })
+  assert.ok(p.y - 14 > 270 && p.y < 0.62 * 540)
+  assert.ok(p.x0 >= 0.8 * 390 && p.x1 + 14 <= 0.95 * 390 && p.x1 >= p.x0)
+  assert.equal(p.lift, 0)
 })
 
 test('dawn: a page waits a random moment and settles only while the chain has a night due', () => {
@@ -594,4 +600,46 @@ test('only SVG data URLs pass as the coin icon', () => {
   assert.ok(L.safeIcon('data:image/svg+xml,%3Csvg%3E'))
   assert.equal(L.safeIcon('javascript:alert(1)'), null)
   assert.equal(L.safeIcon('https://example.com/x.svg'), null)
+})
+
+test('storage that throws or is missing: the page reads nothing and forgets, without an error', () => {
+  const box = new Map()
+  const ok = L.safeStore(() => ({ getItem: (k) => box.get(k) ?? null, setItem: (k, v) => box.set(k, v) }))
+  assert.equal(ok.get('a'), null)
+  assert.equal(ok.set('a', 1), true)
+  assert.equal(ok.get('a'), '1')
+  const refusing = L.safeStore(() => ({ getItem: () => { throw new Error('SecurityError') }, setItem: () => { throw new Error('QuotaExceeded') } }))
+  assert.equal(refusing.get('a'), null)
+  assert.equal(refusing.set('a', 1), false)
+  const blocked = L.safeStore(() => { throw new Error('access denied') })
+  assert.equal(blocked.get('a'), null)
+  assert.equal(blocked.set('a', 1), false)
+  assert.equal(L.safeStore(undefined).get('a'), null)
+})
+
+test('the replay of last night plays on a first visit only, for a night that caught or smoked', () => {
+  const last = { night: 30, outcome: 'LIT', pile: E(420).toString(), target: E(400).toString() }
+  assert.equal(L.replayWanted({ seen: null, last, night: 31 }), true)
+  assert.equal(L.replayWanted({ seen: '1731080000000', last, night: 31 }), false, 'seen before in this browser')
+  assert.equal(L.replayWanted({ seen: null, reduced: true, last, night: 31 }), false, 'reduced motion: no film')
+  assert.equal(L.replayWanted({ seen: null, last: { ...last, outcome: 'SMOKED' }, night: 31 }), true)
+  assert.equal(L.replayWanted({ seen: null, last: { ...last, outcome: 'COLD', pile: '0' }, night: 31 }), false)
+  assert.equal(L.replayWanted({ seen: null, last: { ...last, pile: '0' }, night: 31 }), false)
+  assert.equal(L.replayWanted({ seen: null, last: null, night: 1 }), false, 'the first night is still burning')
+  assert.equal(L.replayWanted({ seen: null, last, night: 30 }), false, 'not the open night')
+})
+
+test('the dawn stamp says what the coin face says', () => {
+  assert.deepEqual(L.stampFor('LIT', 'LIT ×2'), { text: 'LIT ×2', kind: 'lit' })
+  assert.deepEqual(L.stampFor('LIT', undefined), { text: 'LIT', kind: 'lit' })
+  assert.deepEqual(L.stampFor('LIT', '<b>'), { text: 'LIT', kind: 'lit' })
+  assert.deepEqual(L.stampFor('SMOKED', 'SMOKED'), { text: 'SMOKED', kind: 'smoked' })
+  assert.deepEqual(L.stampFor('COLD'), { text: 'COLD', kind: 'cold' })
+  assert.equal(L.stampFor('OPEN'), null)
+})
+
+test('sound comes on with the first tap only for a player who never chose', () => {
+  assert.equal(L.soundOnFirstTap(null), true)
+  assert.equal(L.soundOnFirstTap('off'), false)
+  assert.equal(L.soundOnFirstTap('on'), false)
 })

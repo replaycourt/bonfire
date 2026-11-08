@@ -3,7 +3,7 @@
 // and gradients. The scene knows nothing about the chain; main.js feeds it numbers.
 import { hashSeed } from './logic.js'
 
-const FONT = 'ui-rounded, "SF Pro Rounded", "Nunito", "Avenir Next", "Segoe UI", system-ui, sans-serif'
+export const FONT = '"Bonfire Display", ui-rounded, "SF Pro Rounded", "Nunito", "Avenir Next", "Segoe UI", system-ui, sans-serif'
 const TAU = Math.PI * 2
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 const lerp = (a, b, t) => a + (b - a) * t
@@ -32,10 +32,16 @@ const rgb = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`
 const TARGET_ROWS = 6
 const MAX_ROWS = 9
 const ROW_H = 17
+// Dawn on stage: the sky stays warm (lit) or pale (smoke) this long, then turns back to night in 2 s.
+const STAGE_HOLD = 7
+// The flame on a cold pile is about 30 % of a lit night's roar, and grows with the pile.
+const HEAT_MIN = 0.4
+const HEAT_ROAR = 1.65
 
 export class Scene {
-  constructor(canvas, { reducedMotion = false } = {}) {
+  constructor(canvas, { reducedMotion = false, size = null } = {}) {
     this.canvas = canvas
+    this.size = size // a fixed { width, height, dpr } for pictures drawn off screen (renderStill)
     this.ctx = canvas.getContext('2d')
     this.reduced = reducedMotion
     this.W = 0
@@ -57,6 +63,11 @@ export class Scene {
     this.roar = 0 // time left of a lit night's roar (s)
     this.smokeOut = 0 // time left of a smoky night's smoke (s)
     this.veil = 0 // grey veil after smoke
+    this.stage = null // dawn on stage: { kind, t0, dawn0 } while the sky is warm or pale
+    this.markFade = 1 // the target line and its label step aside while a night burns or smokes
+    this.skyOpen = false // the page has taken the clock and the rules off the sky (dawn, the film)
+    this.topNow = null // how high a flame may reach now, eased between layout.flameTop and flameTopOpen
+    this.rainT = 0
     this.seats = []
     this.more = 0
     this.sparks = []
@@ -66,7 +77,9 @@ export class Scene {
     this.logState = new Map() // log index -> shownAt
     this.stars = []
     this.hills = null
-    this.layout = { cx: 0.5, by: 0.74, scale: 1, moonY: 0.3 }
+    // cx, by: the fire's spot (shares of the stage); scale; moon: { x0, x1, y, lift } in px; free:
+    // { l, r }, the stretch of the stage not under a card; flameTop: how high a roar may reach (px)
+    this.layout = { cx: 0.5, by: 0.76, scale: 1, moon: null, free: null, flameTop: null }
     this.onFrame = null
     this.buildPile()
   }
@@ -79,20 +92,25 @@ export class Scene {
   }
 
   resize() {
-    const r = this.canvas.getBoundingClientRect()
-    const dpr = Math.min(2, globalThis.devicePixelRatio || 1)
+    const r = this.size ? { width: this.size.width, height: this.size.height } : this.canvas.getBoundingClientRect()
+    const dpr = this.size?.dpr ?? Math.min(2, globalThis.devicePixelRatio || 1)
     const W = Math.max(1, Math.round(r.width))
     const H = Math.max(1, Math.round(r.height))
-    if (W === this.W && H === this.H && dpr === this.dpr && this.hills) return
+    const L = this.layout
+    // the fire grows with the stage's height, up to 1.7 times its designed size
+    const u = clamp(Math.min(W / 700, H / 620), 0.5, 1.7) * (L.scale ?? 1)
     this.W = W
     this.H = H
     this.dpr = dpr
+    this.u = u
+    this.cx = W * L.cx
+    this.by = H * L.by
+    this.horizon = Math.min(H * 0.6, this.by - 70 * u)
+    const key = [W, H, dpr, u, L.cx, L.by].join()
+    if (key === this.geoKey && this.hills) return
+    this.geoKey = key
     this.canvas.width = Math.round(W * dpr)
     this.canvas.height = Math.round(H * dpr)
-    this.u = clamp(Math.min(W / 700, H / 760), 0.5, 1.25) * (this.layout.scale ?? 1)
-    this.cx = W * this.layout.cx
-    this.by = H * this.layout.by
-    this.horizon = Math.min(H * 0.6, this.by - 70 * this.u)
     this.makeStars()
     this.makeHills()
   }
@@ -226,7 +244,25 @@ export class Scene {
 
   baseHeat() {
     if (this.cold) return 0
-    return 0.22 + 0.3 * Math.min(this.pctTarget, 1) + (this.reached ? 0.12 : 0)
+    return HEAT_MIN + 0.3 * Math.min(this.pctTarget, 1) + (this.reached ? 0.08 : 0)
+  }
+
+  /** How warm (lit) or pale (smoke) the sky is now, 0..1, and how far dawn has come. */
+  skyStage() {
+    const st = this.stage
+    if (!st) return { warm: 0, pale: 0, hold: 0 }
+    const age = this.t - st.t0
+    const out = 1 - smooth(STAGE_HOLD, STAGE_HOLD + 2, age)
+    const inn = this.reduced ? 1 : smooth(0, 0.9, age)
+    return { warm: st.kind === 'lit' ? inn * out : 0, pale: st.kind !== 'lit' ? inn * out * (st.kind === 'cold' ? 0.5 : 1) : 0, hold: Math.max(st.dawn0 ?? 0, inn) * out }
+  }
+
+  /** Figures raise their arms while a lit night roars, 0..1. */
+  cheering() {
+    const st = this.stage
+    if (!st || st.kind !== 'lit') return 0
+    const age = this.t - st.t0
+    return this.reduced ? (age < STAGE_HOLD - 1 ? 1 : 0) : smooth(0.1, 0.5, age) * (1 - smooth(STAGE_HOLD - 1.5, STAGE_HOLD - 0.5, age))
   }
 
   /** Seats around the fire: [{account, seed, me}], and how many more are not shown. */
@@ -277,12 +313,15 @@ export class Scene {
     kind = String(kind).toLowerCase()
     // the night's pile stays on screen while it burns (lit) or smoulders (smoke)
     this.ash = { pct: Math.max(this.pct, this.pctTarget), t0: this.t, kind }
+    // the sky turns warm (or pale) and stays so for a while, from wherever the night's dawn had it
+    this.stage = { kind, t0: this.t, dawn0: this.dawn ?? 0 }
+    this.rainT = 0.7
     if (kind === 'lit') {
-      this.roar = 9
+      this.roar = 10
       this.smokeOut = 0
       this.coldNight = false
-      this.heatGoal = 1.65
-      if (!this.reduced) this.burst(120)
+      this.heatGoal = HEAT_ROAR
+      if (!this.reduced) this.burst(140)
     } else {
       // a cold night had no wood: no plume, just a dark, quiet pit for a while
       this.smokeOut = kind === 'cold' ? 7 : 10
@@ -296,7 +335,10 @@ export class Scene {
   // ---- geometry ---------------------------------------------------------------------------------
 
   seatPos(theta) {
-    const rx = Math.min(265 * this.u, this.W * 0.43)
+    // the circle stays between the cards, its figures clear of them
+    const free = this.layout.free
+    const room = free ? (Math.min(this.cx - free.l, free.r - this.cx) - 34 * this.u) / 0.97 : Infinity
+    const rx = Math.max(150 * this.u, Math.min(265 * this.u, this.W * 0.43, room))
     const ry = 66 * this.u
     const x = this.cx + rx * Math.cos(theta)
     const y = this.by + 4 * this.u + ry * Math.sin(theta)
@@ -329,8 +371,8 @@ export class Scene {
       const now = ms / 1000
       const dt = this.last ? clamp(now - this.last, 0, 0.1) : 0.016
       this.last = now
+      requestAnimationFrame(tick) // first: one bad frame must not stop the fire for good
       if (!document.hidden) this.frame(dt)
-      requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
   }
@@ -350,9 +392,22 @@ export class Scene {
     if (Math.abs(this.pct - this.pctTarget) < 0.002) this.pct = this.pctTarget
     if (this.roar > 0) {
       this.roar -= dt
-      if (this.roar <= 3) this.heatGoal = this.baseHeat()
+      if (this.roar <= 3.5) this.heatGoal = this.baseHeat()
       if (this.roar <= 0) this.roar = 0
+      // a rain of sparks for the first seconds of a lit night
+      if (!this.reduced && this.roar > 6) {
+        this.rainT -= dt
+        if (this.rainT <= 0) {
+          this.burst(50)
+          this.rainT = 0.75
+        }
+      }
     }
+    if (this.stage && this.t - this.stage.t0 > STAGE_HOLD + 2) this.stage = null
+    const topGoal = this.skyOpen && this.layout.flameTopOpen != null ? this.layout.flameTopOpen : this.layout.flameTop
+    this.topNow = topGoal == null ? null : this.topNow == null || this.reduced ? topGoal : lerp(this.topNow, topGoal, 1 - Math.exp(-dt * 2.5))
+    const markGoal = this.roar > 0 || this.smokeOut > 0 || this.stage ? 0 : 1
+    this.markFade = this.reduced ? markGoal : lerp(this.markFade, markGoal, 1 - Math.exp(-dt * 5))
     if (this.smokeOut > 0) {
       this.smokeOut -= dt
       if (this.smokeOut <= 3) {
@@ -370,7 +425,7 @@ export class Scene {
       const rate = (this.cold ? 0 : 3 + 40 * Math.pow(this.heat, 2.2)) * dt
       for (let i = 0; i < rate || (i === 0 && Math.random() < rate); i++) this.spark()
       // smoke: a thin wisp always, a column after a smoky night
-      const smokeRate = (this.smokeOut > 0 ? (this.coldNight ? 2.5 : this.smokeOut > 4 ? 26 : 10) : this.cold ? 1.6 : 0.9) * dt
+      const smokeRate = (this.smokeOut > 0 ? (this.coldNight ? 2.5 : this.smokeOut > 4 ? 26 : 10) : this.cold ? 1.6 : this.pct < 0.05 ? 0.45 : 0.9) * dt
       if (Math.random() < smokeRate - Math.floor(smokeRate) || smokeRate >= 1) for (let i = 0; i < Math.max(1, Math.floor(smokeRate)); i++) this.puff()
     }
     for (const p of this.sparks) {
@@ -458,7 +513,13 @@ export class Scene {
     return this.by - (this.roar > 0 ? 8 : 7 + Math.min(this.rowsShown(), TARGET_ROWS) * 1.6) * this.u
   }
   flameH() {
-    return (26 + 230 * this.heat) * this.u
+    const raw = (26 + 230 * this.heat) * this.u
+    const top = this.topNow ?? this.layout.flameTop
+    if (top == null) return raw
+    // a roar may reach up to the clock, never out of the sky: soft above 60 % of the room
+    const room = Math.max(40, this.flameBase() - top)
+    const knee = room * 0.6
+    return raw <= knee ? raw : knee + (room - knee) * Math.tanh((raw - knee) / (room - knee))
   }
   flameW() {
     return (30 + 78 * Math.min(this.heat, 1.4)) * this.u
@@ -481,6 +542,7 @@ export class Scene {
     if (!this.seats.length && !this.cold) this.drawEmptySeats()
     this.drawStones(false)
     this.drawGhost()
+    this.drawTargetLine()
     this.drawEmbers()
     this.drawPile('upper')
     this.drawFlames()
@@ -491,29 +553,51 @@ export class Scene {
     this.drawSmoke()
     this.drawSparks()
     this.drawFlying()
-    this.drawTargetLine()
+    this.drawTargetLabel()
     this.drawFloats()
     this.drawVeil()
   }
 
   drawSky() {
     const { ctx, W, horizon } = this
-    const dawn = smooth(0.78, 1, this.progress) * (this.cold ? 0 : 1)
-    const top = mix([5, 6, 18], [14, 16, 42], dawn * 0.6)
-    const mid = mix([13, 14, 42], [34, 30, 78], dawn)
-    const low = mix([40, 24, 58], [122, 64, 82], dawn)
+    const sky = this.skyStage()
+    const dawn = Math.max(smooth(0.78, 1, this.progress), sky.hold) * (this.cold ? 0 : 1)
+    let top = mix([5, 6, 18], [14, 16, 42], dawn * 0.6)
+    let mid = mix([13, 14, 42], [34, 30, 78], dawn)
+    let low = mix([40, 24, 58], [122, 64, 82], dawn)
+    // a lit night's dawn: a warm horizon, rose to orange; a smoky one: a pale, washed-out sky
+    if (sky.warm > 0) {
+      top = mix(top, [30, 20, 54], sky.warm)
+      mid = mix(mid, [104, 56, 98], sky.warm)
+      low = mix(low, [236, 136, 92], sky.warm)
+    }
+    if (sky.pale > 0) {
+      top = mix(top, [36, 36, 48], sky.pale)
+      mid = mix(mid, [74, 72, 88], sky.pale)
+      low = mix(low, [126, 122, 134], sky.pale)
+    }
     const g = ctx.createLinearGradient(0, 0, 0, horizon + 30 * this.u)
     g.addColorStop(0, rgb(top))
     g.addColorStop(0.55, rgb(mid))
     g.addColorStop(1, rgb(low))
     ctx.fillStyle = g
     ctx.fillRect(0, 0, W, this.H)
+    if (sky.warm > 0.01) {
+      // the sun's glow just under the ridge
+      const sun = ctx.createRadialGradient(this.cx, horizon + 20 * this.u, 10, this.cx, horizon + 20 * this.u, W * 0.6)
+      sun.addColorStop(0, `rgba(255,190,120,${0.42 * sky.warm})`)
+      sun.addColorStop(0.5, `rgba(255,130,90,${0.14 * sky.warm})`)
+      sun.addColorStop(1, 'rgba(255,120,90,0)')
+      ctx.fillStyle = sun
+      ctx.fillRect(0, 0, W, horizon + 40 * this.u)
+    }
     this.dawn = dawn
+    this.skyNow = sky
   }
 
   drawStars() {
     const { ctx } = this
-    const fade = 1 - (this.dawn ?? 0) * 0.7
+    const fade = (1 - (this.dawn ?? 0) * 0.7) * (1 - 0.6 * (this.skyNow?.warm ?? 0))
     for (const s of this.stars) {
       const tw = this.reduced ? 0.85 : 0.65 + 0.35 * Math.sin(this.t * s.v + s.p)
       ctx.globalAlpha = s.a * tw * fade
@@ -525,12 +609,19 @@ export class Scene {
     ctx.globalAlpha = 1
   }
 
+  /** The moon's radius, for the page's layout of its path. */
+  moonRadius() {
+    return 17 * Math.max(0.8, Math.min(this.u || 1, 1.4))
+  }
+
   drawMoon() {
     const { ctx, W, u } = this
     const p = clamp(this.progress, 0, 1)
-    const x = lerp(W * 0.06, W * 0.94, p)
-    const y = this.H * (this.layout.moonY ?? 0.3) - Math.sin(p * Math.PI) * this.H * 0.045
-    const r = 17 * Math.max(0.8, u)
+    const m = this.layout.moon && Number.isFinite(this.layout.moon.x0 + this.layout.moon.x1 + this.layout.moon.y + this.layout.moon.lift) ? this.layout.moon : null
+    const x = m ? lerp(m.x0, m.x1, p) : lerp(W * 0.06, W * 0.94, p)
+    const y = m ? m.y - Math.sin(p * Math.PI) * m.lift : this.H * 0.3 - Math.sin(p * Math.PI) * this.H * 0.045
+    const r = this.moonRadius()
+    void u
     const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 5)
     glow.addColorStop(0, 'rgba(255,240,205,0.22)')
     glow.addColorStop(1, 'rgba(255,240,205,0)')
@@ -641,13 +732,17 @@ export class Scene {
     const ash = this.ash
     if (ash) {
       const age = this.t - ash.t0
-      const life = ash.kind === 'lit' ? 10 : 9
+      const lit = ash.kind === 'lit'
+      const life = lit ? 11 : 9
       if (age > life) this.ash = null
       else {
         const alpha = 1 - smooth(life - 2, life, age)
-        const char = ash.kind === 'lit' ? smooth(5, 9, age) : smooth(0, 3, age)
-        const burning = ash.kind === 'lit' && age < 8 ? 1 - smooth(5, 8, age) : 0
-        this.forLogs(ash.pct * TARGET_ROWS, (log) => {
+        // a lit pile burns down from the top while the roar dies; a smoky one sags and greys
+        const char = lit ? 0.75 * smooth(4, 9.5, age) : smooth(0, 3, age)
+        const burning = lit && age < 9 ? 1 - smooth(5.5, 9, age) : 0
+        const rows = ash.pct * TARGET_ROWS * (1 - (lit ? 0.8 * smooth(3.5, 9.5, age) : 0.4 * smooth(2, 8, age)))
+        // drawn over the flames, glowing; as it burns down it shows the flames above it
+        this.forLogs(rows, (log) => {
           if (pass !== 'lower') return
           this.ctx.globalAlpha = alpha
           this.drawLog(cx + log.x * u, by - log.y * u, log.len * u, log.th * u, log.a, log.tone, log.flip, I, burning, log.y / (TARGET_ROWS * ROW_H), char)
@@ -663,14 +758,6 @@ export class Scene {
       const drop = this.reduced ? 0 : (1 - easeOut(clamp(age / 0.4, 0, 1))) * 26 * u
       this.drawLog(cx + log.x * u, by - log.y * u - drop, log.len * u, log.th * u, log.a, log.tone, log.flip, I, 0, log.y / (TARGET_ROWS * ROW_H), 0)
     })
-    // the pile's number, at the height of its top, left of the fire
-    if (pass === 'lower' && this.pileText && !this.cold && this.roar <= 0 && this.smokeOut <= 0) {
-      const y = clamp(this.pileTop(), this.targetY() + 2 * u, by - 22 * u)
-      const x = cx - 150 * u - 10
-      const fits = (t) => x - this.measure(t, 12) - 22 > 4
-      const text = [this.pileText, `${this.pileShort} wood`].find(fits) ?? this.pileShort
-      this.pill(text, x, y, '#2a1a12', '#ffe2b0', 12, 'right')
-    }
   }
 
   /** Calls fn(log, index, fresh) for every log of a pile `rows` rows high. */
@@ -862,7 +949,8 @@ export class Scene {
     if (this.cold || !this.targetText) return
     const y = this.targetY()
     const half = 150 * u
-    const fade = this.roar > 0 || this.smokeOut > 0 ? 0.25 : 1
+    const fade = this.markFade
+    if (fade < 0.02) return
     ctx.save()
     ctx.globalAlpha = fade
     ctx.lineWidth = 2
@@ -886,13 +974,42 @@ export class Scene {
       ctx.fill()
     }
     ctx.restore()
-    ctx.save()
-    ctx.globalAlpha = fade
+  }
+
+  /**
+   * The target's label, on an opaque pill: right of the line if there is room before the card, else
+   * over the line's right end if the flames stay clear of it, else not at all (the card says it too).
+   * Hidden while a night burns or smokes.
+   */
+  drawTargetLabel() {
+    const { ctx, cx, u } = this
+    if (this.cold || !this.targetText || this.markFade < 0.02) return
+    const y = this.targetY()
+    const half = 150 * u
     const text = this.targetText
+    const bg = this.reached ? '#3a2a08' : '#1b1426'
+    const fg = this.reached ? '#ffe08a' : '#ffd9a6'
+    const limit = (this.layout.free?.r ?? this.W) - 6
+    ctx.save()
+    ctx.globalAlpha = this.markFade
+    // the pile's number at the line's left end, like a ruler: "293 on the pile ---- target 641"
+    if (this.pileText) {
+      const x = cx - half - 10 * u
+      const left = (this.layout.free?.l ?? 0) + 4
+      const fits = (t) => x - this.measure(t, 13) - 18 > left
+      const text = [this.pileText, `${this.pileShort} wood`].find(fits)
+      if (text) this.pill(text, x, y, '#2a1a12', '#ffe2b0', 13, 'right', 1)
+      else this.pill(`${this.pileShort} wood`, cx - half, y + 18 * u, '#2a1a12', '#ffe2b0', 12, 'left', 1)
+    }
     const right = cx + half + 10 * u
-    const fits = right + this.measure(text, 13) + 28 < this.W
-    if (fits) this.pill(text, right, y, this.reached ? '#3a2a08' : '#1b1426', this.reached ? '#ffe08a' : '#ffd9a6', 13, 'left')
-    else this.pill(text, cx, y - 16 * u, this.reached ? '#3a2a08' : '#1b1426', this.reached ? '#ffe08a' : '#ffd9a6', 12)
+    if (right + this.measure(text, 13) + 18 < limit) this.pill(text, right, y, bg, fg, 13, 'left', 1)
+    else {
+      const w = this.measure(text, 12) + 16
+      const end = Math.min(cx + half, limit)
+      const flameEdge = cx + this.flameW() * 1.05
+      const flameTip = this.flameBase() - this.flameH()
+      if (end - w > flameEdge + 6 || flameTip > y - 4 * u) this.pill(text, end, y - 18 * u, bg, fg, 12, 'right', 1)
+    }
     ctx.restore()
   }
 
@@ -901,17 +1018,17 @@ export class Scene {
     return this.ctx.measureText(text).width
   }
 
-  pill(text, x, y, bg, fg, size = 12, align = 'center') {
+  pill(text, x, y, bg, fg, size = 12, align = 'center', opacity = 0.86) {
     const { ctx } = this
     ctx.font = `700 ${size}px ${FONT}`
     const w = ctx.measureText(text).width + size * 1.3
     const h = size * 1.9
     const left = align === 'left' ? x : align === 'right' ? x - w : x - w / 2
     ctx.fillStyle = bg
-    ctx.globalAlpha *= 0.86
+    ctx.globalAlpha *= opacity
     roundRect(ctx, left, y - h / 2, w, h, h / 2)
     ctx.fill()
-    ctx.globalAlpha /= 0.86
+    ctx.globalAlpha /= opacity
     ctx.strokeStyle = 'rgba(255,214,150,0.35)'
     ctx.lineWidth = 1
     ctx.stroke()
@@ -1026,12 +1143,20 @@ export class Scene {
     const [hx, hy] = head
     const pose = look.pose
     const hat = look.hat
+    const cheer = this.cheering()
+    const wave = this.reduced ? 0 : Math.sin(this.t * 8 + look.phase * 3) * 3
     const figure = () => {
       line(hip, knee, 11)
       line(knee, foot, 8.5)
       line(foot, P(21, -2), 5)
       line(hip, shoulder, 17, P(-9 + lean * 0.4, -30))
-      if (pose === 0) {
+      if (cheer > 0.5) {
+        // both arms up: the fire caught
+        line(P(1 + lean, -41 + breathe), P(9, -55 + wave * 0.3), 6.5)
+        line(P(9, -55 + wave * 0.3), P(13, -70 + wave), 5.5)
+        line(P(-3 + lean, -41 + breathe), P(-9, -55 - wave * 0.3), 6.5)
+        line(P(-9, -55 - wave * 0.3), P(-11, -69 - wave), 5.5)
+      } else if (pose === 0) {
         line(P(0 + lean, -40 + breathe), P(12, -32), 6.5)
         line(P(12, -32), P(25, -31 + breathe * 0.5), 5.5)
       } else if (pose === 1) {
@@ -1076,7 +1201,7 @@ export class Scene {
     grow = 0
     paint = g
     figure()
-    if (pose === 2) {
+    if (pose === 2 && cheer <= 0.5) {
       // a roasting stick with something on it
       ctx.lineWidth = 1.6 * s
       ctx.strokeStyle = '#1a120d'
@@ -1139,4 +1264,22 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, rr)
   ctx.arcTo(x, y, x + w, y, rr)
   ctx.closePath()
+}
+
+/**
+ * A still of the fire, drawn off screen: a lit night's roar or a smoky night, with figures around
+ * it, for the share card and the link preview. `seats` as for setSeats; `layout` as for setLayout.
+ */
+export function renderStill({ width, height, kind = 'lit', seats = [], pct = 1.15, layout = {}, seconds = 1.6, reducedMotion = false }) {
+  const canvas = document.createElement('canvas')
+  const s = new Scene(canvas, { size: { width, height, dpr: 1 }, reducedMotion })
+  s.setLayout({ cx: 0.5, by: 0.8, scale: 1, ...layout })
+  s.setNight({ progress: 0.995, pct, reached: kind === 'lit', pileText: '', targetText: '' })
+  s.setSeats(seats, 0)
+  s.frame(1 / 30)
+  s.outcome(kind)
+  const steps = Math.round(seconds * 30)
+  for (let i = 0; i < steps; i++) s.step(1 / 30)
+  s.draw()
+  return canvas
 }

@@ -5,12 +5,12 @@
 // nothing that did not come from the chain.
 import { ed25519Supported } from './near.js'
 import { ActionQueue, Client, FriendlyError, loadOrCreateIdentity, notDeployed } from './chain.js'
-import { BOTS, CODE_HASH, CONTRACT, DEPLOYMENT, EXPLORER, GAS_ACCOUNT, HELP_COLLECTS_PER_VISIT } from './config.js'
+import { BOTS, CODE_HASH, CONTRACT, DEPLOYMENT, EXPLORER, GAS_ACCOUNT, HELP_COLLECTS_PER_VISIT, PLAY_URL } from './config.js'
 import { Scene } from './scene.js'
 import { Sound } from './audio.js'
 import * as L from './logic.js'
 import * as U from './ui.js'
-import { saveCard } from './card.js'
+import { shareCard } from './card.js'
 
 const params = new URLSearchParams(location.search)
 const MOCK = params.get('mock') === '1'
@@ -18,23 +18,11 @@ const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matc
 const phone = () => window.matchMedia('(max-width: 900px)').matches
 
 /** localStorage that never throws (private windows may refuse it; then the page just forgets). */
-const store = {
-  get(k) {
-    try {
-      return globalThis.localStorage?.getItem(k) ?? null
-    } catch {
-      return null
-    }
-  },
-  set(k, v) {
-    try {
-      globalThis.localStorage?.setItem(k, v)
-    } catch {
-      /* not kept */
-    }
-  },
-}
+const store = L.safeStore(() => globalThis.localStorage)
 const INTRO_KEY = MOCK ? 'bonfire:mock-intro:v1' : 'bonfire:intro:v1'
+const REPLAY_KEY = MOCK ? 'bonfire:mock-replay:v1' : 'bonfire:replay:v1' // last night was played back once
+const BANNER_MS = 9000
+const STAMP_MS = 1700
 
 const S = {
   cfg: null,
@@ -49,7 +37,9 @@ const S = {
   offsetAt: 0,
   lastSettled: null,
   replayed: false, // last night has been played back once (replayLastNight)
-  replaying: false, // the playback owns the scene's pile until its banner is up
+  replaying: false, // the playback owns the scene's pile until the film ends
+  film: null, // the first visit's film of last night while it plays: { end() }
+  filmWanted: false, // a first visit in this browser, with motion allowed
   nightThrowers: null, // { night, list }: who sat at the fire of the night on screen
   seatHold: null,
   settling: false,
@@ -61,7 +51,8 @@ const S = {
   codeHash: null, // the deployed code's hash, as view_account reports it
   deployed: true,
   icon: null,
-  card: null, // the night shown in the banner, when the player threw on it (Save your card)
+  card: null, // the night shown in the banner, when the player threw on it (Share your card)
+  myCard: null, // the player's last settled night, kept in "Your wood" until their next throw
   selected: null, // index of the throw chip the hint describes
   estimate: null, // { key, est }
   estimating: null,
@@ -87,17 +78,27 @@ const S = {
 let client
 let scene
 let queue
-const sound = new Sound()
+const sound = new Sound(store)
 
 // ---- boot ---------------------------------------------------------------------------------------
 
 async function boot() {
   scene = new Scene(U.$('scene'), { reducedMotion: reduced })
+  // a first visit shows last night as a short film: tonight's cards wait off screen until it is over
+  S.filmWanted = !reduced && !store.get(REPLAY_KEY)
+  if (S.filmWanted) document.body.classList.add('film-wait')
   layout()
   scene.setNight({ progress: 0.35, pct: 0, reached: false, pileText: '', targetText: '' })
   scene.start()
   window.addEventListener('resize', layout)
+  document.fonts?.load('800 16px "Bonfire Display"').catch(() => {})
   document.fonts?.ready.then(layout) // the rules may wrap differently once the fonts are in
+  if (globalThis.ResizeObserver) {
+    // the cards change height as the night goes on: the moon, the circle and the strip follow
+    const ro = new ResizeObserver(() => layout())
+    ro.observe(U.$('you'))
+    ro.observe(U.$('tonight'))
+  }
   wire()
 
   if (MOCK) {
@@ -145,6 +146,7 @@ async function boot() {
 
 function bootFailed(e) {
   console.info('boot', e?.message ?? e)
+  document.body.classList.remove('film-wait')
   if (!MOCK && notDeployed(e)) {
     S.phase = 'cold'
     S.deployed = false
@@ -165,8 +167,56 @@ function bootFailed(e) {
   setTimeout(() => location.reload(), 30_000)
 }
 
+/**
+ * The scene's layout from the page around it: the stretch of the stage between the cards (the fire's
+ * circle, its labels and the strip stay inside it), the moon's path beside the text, and how high a
+ * roar may reach.
+ */
 function layout() {
-  scene.setLayout({ cx: 0.5, by: phone() ? 0.82 : 0.75, scale: phone() ? 1.28 : 1.12, moonY: L.moonY(phone() ? 0.47 : 0.32, U.$('stage')?.getBoundingClientRect(), document.querySelector('.sky-text')?.getBoundingClientRect()) })
+  const stage = U.$('stage')?.getBoundingClientRect()
+  if (!stage?.width) return
+  const rel = (r) => r && { left: r.left - stage.left, right: r.right - stage.left, top: r.top - stage.top, bottom: r.bottom - stage.top }
+  const text = rel(document.querySelector('.rules')?.getBoundingClientRect())
+  const clock = rel(U.$('clock')?.getBoundingClientRect())
+  const sky = text && clock ? { left: Math.min(text.left, clock.left), right: Math.max(text.right, clock.right), top: clock.top, bottom: Math.max(text.bottom, clock.bottom) } : null
+  const small = phone()
+  const you = small ? null : rel(U.$('you').getBoundingClientRect())
+  const tonight = small ? null : rel(U.$('tonight').getBoundingClientRect())
+  const free = you && tonight ? { l: tonight.right + 12, r: you.left - 12 } : null
+  const r = scene.moonRadius?.() ?? 20
+  const top = rel(document.querySelector('.top')?.getBoundingClientRect())?.bottom ?? 60
+  scene.setLayout({
+    cx: 0.5,
+    by: small ? 0.82 : 0.76,
+    scale: small ? 1.28 : 1.12,
+    free,
+    moon: L.moonPath({ W: stage.width, H: stage.height, text: sky, card: you, top, r }),
+    // under the rules while they are on the sky; up to the clock (phones: under it) while the stamp,
+    // the banner or the film have taken their place
+    flameTop: (sky?.bottom ?? 220) + 14,
+    flameTopOpen: small ? (clock?.bottom ?? 130) + 8 : (clock?.top ?? 60) + 16,
+  })
+  fitStrip(free, you, tonight)
+}
+
+/** The sky is free of the clock and the rules while the film, the stamp or the banner hold it. */
+function syncSky() {
+  if (scene) scene.skyOpen = ['replay-on', 'stamp-on', 'banner-on'].some((c) => document.body.classList.contains(c))
+}
+
+/** The strip of last nights fits between the cards wherever they reach down to it: older nights go first. */
+function fitStrip(free = null, you = null, tonight = null) {
+  const row = document.querySelector('.strip-row')
+  const items = [...U.$('strip').children]
+  for (const li of items) li.hidden = false
+  if (!row || !free || items.length < 2) return
+  const stage = U.$('stage').getBoundingClientRect()
+  const top = row.getBoundingClientRect().top - stage.top - 8
+  const intro = U.$('intro')
+  const introBottom = intro && !intro.hidden ? intro.getBoundingClientRect().bottom - stage.top : 0
+  if (Math.max(you?.bottom ?? 0, tonight?.bottom ?? 0, introBottom) < top) return
+  const room = 2 * Math.min(stage.width / 2 - free.l, free.r - stage.width / 2)
+  for (let i = 0; i < items.length - 6 && row.getBoundingClientRect().width > room; i++) items[i].hidden = true
 }
 
 function wire() {
@@ -178,15 +228,15 @@ function wire() {
   })
   U.$('btn-sound').addEventListener('click', () => {
     sound.setOn(!sound.on)
+    soundTip(false)
     renderSound()
   })
   U.$('btn-kindle').addEventListener('click', onKindle)
   U.$('btn-collect').addEventListener('click', onCollect)
-  U.$('banner-card').addEventListener('click', async () => {
-    if (!S.card) return
-    const ok = await saveCard({ result: S.card, icon: S.icon, symbol: S.cfg.config.symbol, decimals: S.cfg.config.decimals }).catch(() => false)
-    U.toast(ok ? 'Your card is saved. Share it anywhere.' : 'The card could not be made in this browser.', ok ? 'ok' : 'warn')
-  })
+  U.$('banner-card').addEventListener('click', () => onShare(S.card))
+  U.$('btn-share').addEventListener('click', () => onShare(S.myCard))
+  U.$('banner-go').addEventListener('click', () => S.film?.end())
+  U.$('film-skip').addEventListener('click', () => S.film?.end())
   U.$('btn-older').addEventListener('click', showOlder)
   U.$('drawer-close').addEventListener('click', U.closeDrawer)
   U.$('drawer-body').addEventListener('click', (e) => {
@@ -199,6 +249,7 @@ function wire() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return
     if (U.drawerOpen()) U.closeDrawer()
+    else if (S.film) S.film.end()
     else if (S.intro === 'on' && U.$('intro').contains(document.activeElement)) endIntro()
   })
   renderSound()
@@ -209,6 +260,34 @@ function renderSound() {
   b.setAttribute('aria-pressed', String(sound.on))
   b.setAttribute('aria-label', sound.on ? 'Sound is on' : 'Sound is off')
   b.querySelector('.ico').classList.toggle('off', !sound.on)
+  U.setText('sound-word', sound.on ? 'Sound on' : 'Sound off')
+}
+
+let soundTipTimer = null
+/** A ring around the speaker for a few seconds after the sound came on by itself. */
+function soundTip(show) {
+  clearTimeout(soundTipTimer)
+  S.soundNews = show
+  U.$('btn-sound').classList.toggle('ring', show && !reduced)
+  if (show) soundTipTimer = setTimeout(() => soundTip(false), 6000)
+}
+
+/** Shares the card of a night the player threw on: the PNG through the share sheet where there is one, else a download. */
+async function onShare(result) {
+  if (!result || !S.cfg) return
+  const how = await shareCard({ result, icon: S.icon, symbol: S.cfg.config.symbol, decimals: S.cfg.config.decimals, seats: scene?.seats ?? [], url: PLAY_URL }).catch(() => false)
+  if (how === 'saved') U.toast('Your card is saved. Share it anywhere.', 'ok')
+  else if (!how) U.toast('The card could not be made in this browser.', 'warn')
+}
+
+/** The player's last night stays in "Your wood", with its card, until their next throw. */
+function renderMyCard() {
+  const c = S.myCard
+  U.$('my-card').hidden = !c
+  if (!c) return
+  U.$('my-card').classList.toggle('smoked', c.outcome !== 'LIT')
+  U.setText('my-card-word', `Night ${c.night} · ${c.word}`)
+  U.setText('my-card-line', c.outcome === 'LIT' ? (c.throwers > 1 ? `${c.throwers} of you lit it.` : 'You lit it.') : 'It went up in smoke.')
 }
 
 // ---- the poll loop ------------------------------------------------------------------------------
@@ -237,7 +316,8 @@ async function poll() {
       S.lastSettled = lastNight
       // a first visit: a newcomer who has not hidden the steps before, and who can play
       S.introWanted = store.get(INTRO_KEY) === null && S.canSign && client.canAct && !S.holder?.held
-      setTimeout(() => replayLastNight(state.last) || showIntro(), 1500)
+      // after this poll's render, which makes the model the steps read
+      setTimeout(() => (S.filmWanted && replayLastNight(state.last)) || filmOver(), S.filmWanted ? 500 : 0)
     } else if (lastNight > S.lastSettled) {
       S.lastSettled = lastNight
       onSettled(state.last)
@@ -311,29 +391,53 @@ async function settleSoon() {
 }
 
 /**
- * The payoff at first sight: once per visit, last night plays back in about five seconds (its pile
- * rising against its target, then dawn and the banner), so a visitor sees what a night is without
- * waiting for this one to end. It reads state.last and night(n); nothing is sent. Cold nights have
- * nothing to show and are skipped, and so is the playback for reduced motion. Returns whether it
- * plays; the first-visit steps follow it.
+ * The payoff at first sight: on a first visit in this browser, last night plays back as a short
+ * film (its pile rising against its target, then dawn: the stamp and the banner), so a visitor sees
+ * what a night is without waiting for this one to end. Nothing of tonight is on screen meanwhile, so
+ * two nights never show at once; "Skip" ends it at any moment. It reads state.last and night(n);
+ * nothing is sent. Returns whether it plays.
  */
 function replayLastNight(last) {
-  if (S.replayed || reduced || !last || !['LIT', 'SMOKED'].includes(last.outcome)) return false
+  if (S.replayed || !L.replayWanted({ seen: store.get(REPLAY_KEY), reduced, last, night: S.state?.night }) || S.state?.last?.night !== last.night) return false
   const pile = BigInt(last.pile ?? 0)
   const target = BigInt(last.target ?? 0)
-  if (pile <= 0n || target <= 0n || S.state?.last?.night !== last.night) return false
   S.replayed = true
   S.replaying = true
-  // the scene plays last night: tonight's card and clock step back, and a tag names both nights
+  store.set(REPLAY_KEY, String(Date.now()))
   document.body.classList.add('replay-on')
-  U.setText('replay-last', `Replay of night ${last.night}`)
-  U.setText('replay-now', `tonight is night ${S.state.night}`)
-  U.$('replay-tag').hidden = false
+  document.body.classList.remove('film-wait')
+  syncSky()
+  U.setText('film-kicker', `Replay of last night · Night ${last.night}`)
+  const film = U.$('film')
+  film.classList.remove('out')
+  film.hidden = false
   const w = (u) => L.fmtWhole(u, S.cfg.config.decimals)
-  scene.cheer(`Night ${last.night}, replayed in five seconds`)
+  const timers = []
+  const later = (ms, fn) => timers.push(setTimeout(fn, ms))
+  let raf = 0
+  let over = false
+  S.film = {
+    end() {
+      if (over) return
+      over = true
+      cancelAnimationFrame(raf)
+      timers.forEach(clearTimeout)
+      S.film = null
+      // a live dawn that came meanwhile keeps its banner; the film's own banner goes
+      if (S.lastSettled === last.night) hideBanner()
+      hideStamp()
+      film.hidden = true
+      U.$('banner-go').hidden = true
+      S.replaying = false
+      document.body.classList.remove('replay-on')
+      syncSky()
+      render()
+      filmOver()
+    },
+  }
   const t0 = performance.now()
   const step = () => {
-    const f = Math.min(1, (performance.now() - t0) / 4500)
+    const f = Math.min(1, (performance.now() - t0) / 4200)
     const p = (pile * BigInt(Math.round(f * 1000))) / 1000n
     const reached = p >= target
     scene.setNight({
@@ -344,29 +448,31 @@ function replayLastNight(last) {
       pileShort: p > 0n ? w(p) : '',
       targetText: reached ? `✓ ${w(target)} reached` : `target ${w(target)}`,
     })
-    if (f < 1) return void requestAnimationFrame(step)
+    if (f < 1) return void (raf = requestAnimationFrame(step))
     scene.outcome(last.outcome)
+    film.classList.add('out')
     client
       .night(last.night)
       .then((n) => L.nightResult(n, S.holder, client.identity?.account, S.cfg.config.decimals, S.cfg.config.symbol, BOTS))
       .catch(() => null)
       .then((result) => {
+        if (over) return
+        film.hidden = true
         // a dawn that came during the playback has its own banner up: the replay does not cover it
-        if (S.lastSettled === last.night) {
-          showBanner(last, result)
-          U.setText('banner-kicker', `Replay of last night · Night ${last.night} · ${result?.word ?? last.outcome}`)
-        }
-        U.$('replay-tag').hidden = true
-        setTimeout(() => {
-          S.replaying = false
-          document.body.classList.remove('replay-on')
-          render()
-          showIntro()
-        }, 3000)
+        if (S.lastSettled !== last.night) return later(1500, () => S.film?.end())
+        stageDawn(last, result, { replay: true })
+        later(STAMP_MS + 4200, () => S.film?.end())
       })
   }
-  requestAnimationFrame(step)
+  raf = requestAnimationFrame(step)
   return true
+}
+
+/** The film is over (or never played): tonight's cards come in, then the first visit's steps. */
+function filmOver() {
+  document.body.classList.remove('film-wait')
+  layout()
+  showIntro()
 }
 
 // ---- a first visit: three steps, numbered on the controls they point at --------------------------
@@ -377,6 +483,7 @@ function showIntro() {
   U.setText('intro-title', `A whole night in ${L.fmtDuration(S.model.nightMs)}`)
   U.$('intro').hidden = false
   renderIntro()
+  layout()
 }
 
 function renderIntro() {
@@ -410,6 +517,7 @@ function endIntro() {
   store.set(INTRO_KEY, String(Date.now()))
   const focused = U.$('intro').contains(document.activeElement)
   U.$('intro').hidden = true
+  layout()
   for (const c of ['intro-on', 'intro-at-1', 'intro-at-2', 'intro-at-3']) document.body.classList.remove(c)
   if (focused) [U.$('btn-kindle'), ...U.$('throw-row').querySelectorAll('button'), U.$('btn-collect')].find((b) => b && !b.disabled && b.offsetParent)?.focus()
 }
@@ -481,7 +589,12 @@ async function onSettled(last) {
   } catch {
     /* the banner falls back to the outcome alone */
   }
-  showBanner(last, result)
+  if (S.film) S.film.end() // a live dawn ends the film of last night
+  stageDawn(last, result)
+  if (result?.mine) {
+    S.myCard = result
+    renderMyCard()
+  }
   if (result?.mine && document.hidden) {
     S.tabResult = result.title
     renderTitle()
@@ -492,24 +605,60 @@ async function onSettled(last) {
   scheduleHelp(15_000 + Math.random() * 15_000)
 }
 
-function showBanner(last, result) {
+/**
+ * Dawn on stage: the scene has started the roar or the smoke; a stamp with the coin face's word fills
+ * the sky where the clock was, then the banner takes its place, then the clock comes back.
+ */
+function stageDawn(last, result, { replay = false } = {}) {
+  clearTimeout(S.stampTimer)
+  hideBanner()
+  const st = L.stampFor(last.outcome, result?.word ?? '')
+  if (st) {
+    const el = U.$('stamp')
+    el.textContent = st.text
+    el.className = `stamp ${st.kind}`
+    el.hidden = false
+    document.body.classList.add('stamp-on')
+    syncSky()
+    S.stampTimer = setTimeout(() => {
+      el.classList.add('out')
+      S.stampTimer = setTimeout(hideStamp, 350)
+      showBanner(last, result, { replay })
+    }, STAMP_MS)
+  } else showBanner(last, result, { replay })
+}
+
+function hideStamp() {
+  clearTimeout(S.stampTimer)
+  U.$('stamp').hidden = true
+  document.body.classList.remove('stamp-on')
+  syncSky()
+}
+
+function showBanner(last, result, { replay = false } = {}) {
   const el = U.$('banner')
   el.className = `banner ${last.outcome.toLowerCase()}`
-  U.setText('banner-kicker', `Night ${last.night} · ${result?.word ?? last.outcome}`)
+  const word = result?.word ?? last.outcome
+  U.setText('banner-kicker', replay ? `Replay of last night · Night ${last.night} · ${word}` : `Night ${last.night} · ${word}`)
   U.setText('banner-title', result?.title ?? (last.outcome === 'LIT' ? 'The fire caught!' : last.outcome === 'SMOKED' ? 'Up in smoke' : 'A cold night'))
   U.setText('banner-text', result?.text ?? '')
   U.setText('banner-names', result?.names ?? '')
-  // a night the player threw on gets a card to save, and the banner stays longer to find it
-  S.card = result?.mine ? result : null
+  // a night the player threw on gets a card to share; it stays in "Your wood" after the banner goes
+  S.card = !replay && result?.mine ? result : null
   U.$('banner-card').hidden = !S.card
-  U.$('replay-tag').hidden = true
+  U.$('banner-go').hidden = !replay
   el.hidden = false
   document.body.classList.add('banner-on')
+  syncSky()
   clearTimeout(S.bannerTimer)
-  S.bannerTimer = setTimeout(() => {
-    el.hidden = true
-    document.body.classList.remove('banner-on')
-  }, S.card ? 25_000 : 11_000)
+  if (!replay) S.bannerTimer = setTimeout(hideBanner, BANNER_MS)
+}
+
+function hideBanner() {
+  clearTimeout(S.bannerTimer)
+  U.$('banner').hidden = true
+  document.body.classList.remove('banner-on')
+  syncSky()
 }
 
 async function loadHistory() {
@@ -637,6 +786,10 @@ function onThrow(choice) {
   const m = S.model
   if (!m || !m.canThrow || !client.canAct) return
   sound.enable()
+  if (S.myCard) {
+    S.myCard = null // a new night of their own: the last one's card steps aside
+    renderMyCard()
+  }
   const amount = choice.amount
   // name the night the chain's clock says now; `act` settles an ended night before the throw lands
   queue.push({ kind: 'throw', amount, night: clockNow(), build() {
@@ -651,6 +804,12 @@ function onKindle() {
   const m = S.model
   if (!m?.kindle.can || !client.canAct) return
   sound.enable()
+  // the tap is the gesture browsers wait for: the fire is heard from here on, unless muted before
+  if (L.soundOnFirstTap(sound.choice)) {
+    sound.setOn(true)
+    renderSound()
+    soundTip(true)
+  }
   const night = clockNow()
   queue.push({ kind: 'kindling', build: () => L.kindlingAction(night) })
   U.$('btn-kindle').disabled = true
@@ -690,7 +849,8 @@ function onDone(out, item) {
     U.toast(refusal(out?.error, item), 'warn', 6000)
   } else if (item.kind === 'kindling') {
     sound.chime()
-    U.toast(`${L.fmtEmber(m.kindling, m.dec)} EMBER of kindling is yours. Throw some on the fire.`, 'ok')
+    const news = S.soundNews ? ` Sound is on: the speaker ${phone() ? 'at the top' : 'up right'} mutes it.` : ''
+    U.toast(`${L.fmtEmber(m.kindling, m.dec)} EMBER of kindling is yours. Throw some on the fire.${news}`, 'ok', news ? 6500 : 4200)
   } else if (L.big(out.collected) > 0n) {
     sound.chime()
     U.toast(`${L.fmtEmber(out.collected, m.dec)} EMBER collected from your last night.`, 'ok')
@@ -879,7 +1039,7 @@ function renderYou() {
   const kindle = U.$('btn-kindle')
   const showKindle = m.kindle.can && m.balance === 0n && m.myWood === 0n
   kindle.hidden = !showKindle
-  U.setText('kindle-sub', `${f(m.kindling)} EMBER from the hearth, free, once`)
+  U.setText('kindle-sub', `Start playing · ${f(m.kindling)} free EMBER · no wallet`)
   kindle.disabled = !canAct || queue.busy
 
   const row = U.$('throw-row')
@@ -957,7 +1117,13 @@ function renderHistory() {
   const strip = L.nightStrip(S.history, 24)
   U.renderStrip(U.$('strip'), strip, { decimals: dec, symbol: sym })
   U.setText('strip-word', strip.length ? strip[strip.length - 1].word : '')
-  U.renderChart(U.$('chart'), L.supplySeries(S.history, dec), { symbol: sym })
+  layout()
+  const flows = L.flowSeries(S.history, dec, phone() ? 36 : 60)
+  U.renderFlows(U.$('chart'), flows, { symbol: sym })
+  // the net change over the nights shown, in EMBER: a percentage of the hearth-heavy supply reads as zero
+  const net = flows.reduce((a, d) => a + d.mint - d.burn, 0)
+  const now = S.history.length ? L.fmtWhole(S.history[S.history.length - 1].supply, dec) : ''
+  U.setText('supply-now', now ? `Supply ${now} ${sym} · ${net >= 0 ? '+' : '−'}${L.fmtInt(Math.round(Math.abs(net)))} over ${flows.length} night${flows.length === 1 ? '' : 's'}` : '')
   renderLedger()
 }
 
