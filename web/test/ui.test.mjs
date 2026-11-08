@@ -1,7 +1,7 @@
 // The "How it works" text, built from config() alone (no DOM needed for it).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { howHtml, niceCeil, pctChange, proofHtml } from '../js/ui.js'
+import { howHtml, niceCeil, pctChange, proofHtml, txLabel } from '../js/ui.js'
 
 const E = (n) => (BigInt(n) * 10n ** 18n).toString()
 const cfg = (over = {}) => ({
@@ -71,4 +71,36 @@ test('try to cheat it: real rule breakers in the Proof drawer, the second claim 
   const claimed = proofHtml({ ...base, cheats: { canAct: true, kindlingTwice: true } })
   assert.match(claimed, /data-cheat="kindling">/)
   assert.doesNotMatch(proofHtml({ ...base, mock: true, cheats: { canAct: true, kindlingTwice: true } }), /data-cheat/)
+})
+
+test('proof: each transaction in words: refused acts say so, a collect for another thrower names it', () => {
+  const me = 'ab'.repeat(32)
+  const bots = { ['cd'.repeat(32)]: 'demo-bot-late' }
+  assert.deepEqual(txLabel({ kind: 'act', action: 'throw', refused: 'the action is for night 675, but this is night 674' }, me), { kind: 'act · throw', mark: 'refused', why: 'the action is for night 675, but this is night 674' })
+  assert.deepEqual(txLabel({ kind: 'act', action: 'claim_kindling', refused: null }, me), { kind: 'act · kindling', mark: null, why: null })
+  assert.deepEqual(txLabel({ kind: 'collect', for: 'cd'.repeat(32) }, me, bots), { kind: 'collect for demo-bot-late', mark: null, why: null })
+  assert.equal(txLabel({ kind: 'collect', for: '1f08'.repeat(16) }, me).kind, 'collect for 1f08…1f08')
+  assert.equal(txLabel({ kind: 'collect', for: me }, me).kind, 'collect')
+  assert.equal(txLabel({ kind: 'settle', failure: 'out of gas' }, me).mark, 'failed')
+  // a transaction from before this page noted the action keeps its plain kind
+  assert.equal(txLabel({ kind: 'act' }, me).kind, 'act')
+
+  const txs = [
+    { kind: 'act', action: 'throw', refused: 'the action is for night 675, but this is night 674', hash: 'A'.repeat(44), gas: 2.3e12 },
+    { kind: 'collect', for: '1f08'.repeat(16), hash: 'B'.repeat(44), gas: 2.4e12 },
+  ]
+  const html = proofHtml(proof({ account: me, txs }))
+  assert.match(html, /<span class="kind">act · throw <b class="bad">refused<\/b><\/span>/)
+  assert.match(html, /<span class="why">the action is for night 675, but this is night 674<\/span>/)
+  assert.match(html, /<span class="kind">collect for 1f08…1f08<\/span>/)
+  assert.match(html, /one this page relayed for another thrower of a settled night: anyone may collect for anyone/)
+  assert.doesNotMatch(proofHtml(proof({ account: me, txs: [txs[0]] })), /relayed for another thrower/)
+})
+
+test('try to cheat it: the contract’s answer shows in the drawer, under the buttons', () => {
+  const base = { mock: false, deployment: 'final', contract: 'bonfire-coin.testnet', keys: [], codeHash: null, account: 'ab', gasAccount: 'g', rpcHost: 'r', txs: [], explorer: 'https://x', deployed: true, owed: null, cheats: { canAct: true, kindlingTwice: false } }
+  assert.doesNotMatch(proofHtml(base), /cheat-out/)
+  assert.match(proofHtml({ ...base, cheatOut: { pending: true } }), /class="cheat-out" role="status">Sent\. Waiting for the contract’s answer…/)
+  assert.match(proofHtml({ ...base, cheatOut: { ok: false, error: 'the action is for night 675, but this is night 674' } }), /Refused, as it should be\. The contract said: “the action is for night 675, but this is night 674”/)
+  assert.match(proofHtml({ ...base, cheatOut: { ok: true } }), /which it should not have/)
 })

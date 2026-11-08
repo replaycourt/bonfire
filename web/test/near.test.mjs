@@ -243,6 +243,24 @@ test('Client.act signs bonfire:v1:<contract>:<nonce>:<action> with the player ke
   assert.equal(c.txs[0].hash, 'H')
 })
 
+test('Client notes what each transaction was: the action, a refusal, a collect for someone else', async () => {
+  const id = { key: await N.newKey() }
+  id.account = N.implicitAccount(id.key)
+  const said = { ok: false, error: 'the action is for night 13, but this is night 12' }
+  const pool = { empty: false, relay: async (receiver, method) => ({ hash: 'H' + method, gas: 5, failure: null, value: method === 'act' ? said : { amount: '0' } }) }
+  const c = new Client({ rpc: { view: async () => ({ nonce: 1 }) }, contract: 'bonfire-coin.testnet', pool })
+  await c.setIdentity(id)
+  const out = await c.act(throwAction(5n, 13))
+  // a refused act is a transaction that went through: the outcome comes back, and the list says no
+  assert.equal(out.ok, false)
+  assert.deepEqual([c.txs[0].kind, c.txs[0].action, c.txs[0].refused], ['act', 'throw', said.error])
+  await c.collect('bob.testnet')
+  assert.deepEqual([c.txs[0].kind, c.txs[0].for, c.txs[0].refused], ['collect', 'bob.testnet', undefined])
+  said.ok = true
+  await c.act('{"claim_kindling":{"night":12}}')
+  assert.deepEqual([c.txs[0].action, c.txs[0].refused], ['claim_kindling', null])
+})
+
 test('ActionQueue keeps one act in flight and merges throws for the same night', async () => {
   const sent = []
   const fake = {

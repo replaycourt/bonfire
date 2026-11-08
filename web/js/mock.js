@@ -790,8 +790,8 @@ export class MockClient {
     return this.call(() => ({ code_hash: 'mock: no code on chain' }))
   }
 
-  record(kind, failure = null) {
-    const entry = { kind, hash: fakeHash(this.r), gas: 1.5e12 + this.r() * 2e12, at: Date.now(), failure, mock: true }
+  record(kind, failure = null, extra = {}) {
+    const entry = { kind, hash: fakeHash(this.r), gas: 1.5e12 + this.r() * 2e12, at: Date.now(), failure, mock: true, ...extra }
     this.txs.unshift(entry)
     this.txs = this.txs.slice(0, 40)
     this.onTx?.(entry)
@@ -818,7 +818,7 @@ export class MockClient {
     else res = { error: 'unknown action' }
     const h = e.holders.get(me)
     if (h) h.nonce += 1
-    this.record('act')
+    this.record('act', null, { action: Object.keys(a)[0] ?? null, refused: res.error ?? null })
     return { ok: !res.error, error: res.error ?? null, nonce: h?.nonce ?? 0, night: e.night, settled, collected: s(collected) }
   }
 
@@ -837,7 +837,7 @@ export class MockClient {
     const now = Date.now()
     this.world.advance(now)
     const out = this.world.engine.collect(account, now)
-    this.record('collect')
+    this.record('collect', null, { for: account })
     return out
   }
 }

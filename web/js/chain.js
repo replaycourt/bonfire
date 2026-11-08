@@ -155,6 +155,15 @@ export function notDeployed(err) {
 
 // ---- the contract -------------------------------------------------------------------------------
 
+/** The action's name from its JSON ("throw", "claim_kindling", …), for the list of transactions. */
+export function actionName(action) {
+  try {
+    return Object.keys(JSON.parse(action))[0] ?? null
+  } catch {
+    return null
+  }
+}
+
 export class Client {
   constructor({ rpc = new Rpc(RPC_HOSTS), contract = CONTRACT, pool } = {}) {
     this.mock = false
@@ -212,8 +221,9 @@ export class Client {
     return me
   }
 
-  record(kind, r) {
-    const entry = { kind, hash: r.hash, gas: r.gas, at: Date.now(), failure: r.failure }
+  /** Notes a transaction for the Proof drawer; `extra` says what it was ({ action, refused } or { for }). */
+  record(kind, r, extra = {}) {
+    const entry = { kind, hash: r.hash, gas: r.gas, at: Date.now(), failure: r.failure, ...extra }
     this.txs.unshift(entry)
     this.txs = this.txs.slice(0, 40)
     this.onTx?.(entry)
@@ -234,7 +244,9 @@ export class Client {
         await this.resync()
         throw e
       }
-      this.record('act', r)
+      // a refused action is a successful transaction whose outcome says no
+      const refused = !r.failure && r.value?.ok === false ? String(r.value.error ?? '') : null
+      this.record('act', r, { action: actionName(action), refused })
       if (r.failure) {
         if (/nonce/i.test(r.failure) && attempt < 2) {
           await this.resync()
@@ -266,7 +278,7 @@ export class Client {
   /** Credits `account` with what a settled night owes it. Anyone may call it for anyone. */
   async collect(account) {
     const r = await this.pool.relay(this.contract, 'collect', { account_id: account }, COLLECT_GAS, { attempts: 2 })
-    this.record('collect', r)
+    this.record('collect', r, { for: account })
     if (r.failure) throw new FriendlyError('Collecting did not go through. Nothing was lost.', new Error(r.failure))
     return r.value
   }

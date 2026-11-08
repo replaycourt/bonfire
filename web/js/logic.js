@@ -506,6 +506,23 @@ export function throwHint(m, amount, p) {
   return `${head}. Too little to change your share of the new ${m.symbol}.`
 }
 
+/**
+ * Credit someone else collected for the player: anyone may call `collect` for anyone, and open pages
+ * do it for the night's throwers. `prev` and `next` are two holder views in a row; `acted` says the
+ * page sent an action of its own in between (every action collects first, and says so itself).
+ * Returns { night, amount } when last view's credit from a settled night is gone without that, else null.
+ */
+export function collectedForYou(prev, next, openNight, acted = false) {
+  if (acted || !prev || !next) return null
+  const owed = big(prev.pending)
+  const n = prev.wood_night
+  if (owed <= 0n || n == null || n >= openNight) return null
+  if (big(next.pending) > 0n && next.wood_night === n) return null
+  // a throw of its own (from another tab of this browser) would collect too, and name tonight
+  if (next.wood_night != null && next.wood_night !== n) return null
+  return { night: n, amount: owed }
+}
+
 /** The line beside "Collect": the credit already counts in the balance shown above it. */
 export function readyText(m) {
   return `from night ${m.readyNight} is already in your balance. Collect it now, or your next throw will.`

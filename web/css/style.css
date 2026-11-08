@@ -362,9 +362,14 @@ body.cold .ledger-section, body.offline .ledger-section { display: none; }
 .proof-list a { word-break: break-all; }
 .drawer-body code { font-size: 0.8rem; word-break: normal; overflow-wrap: anywhere; color: var(--ink-1); }
 .proof-list code { word-break: break-all; }
-.tx-list li { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid rgba(255, 214, 160, 0.07); }
-.tx-list .kind { width: 56px; color: var(--ink-3); font-weight: 700; font-size: 0.8rem; }
+.tx-list li { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid rgba(255, 214, 160, 0.07); }
+.tx-list .kind { min-width: 56px; max-width: 62%; overflow-wrap: anywhere; color: var(--ink-3); font-weight: 700; font-size: 0.8rem; }
+.tx-list .kind .bad { font-size: 0.78rem; }
 .tx-list .gas { margin-left: auto; color: var(--ink-3); font-size: 0.78rem; }
+.tx-list .why { flex-basis: 100%; color: var(--ink-3); font-size: 0.78rem; }
+.cheat-out { margin: 4px 0 10px; padding: 8px 12px; border-radius: 10px; font-size: 0.85rem; color: var(--ink-1); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); }
+.cheat-out.good { border-color: rgba(140, 220, 150, 0.45); }
+.cheat-out.bad { border-color: rgba(255, 150, 120, 0.6); }
 .rpc { white-space: pre-wrap; word-break: break-all; font-size: 0.74rem; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--ink-1); }
 .mock-note { background: #ffe14d; color: #241a00; font-weight: 800; padding: 8px 12px; border-radius: 10px; }
 .toast { position: fixed; z-index: 50; left: 50%; bottom: 58px; transform: translateX(-50%); max-width: min(520px, 92%); padding: 12px 18px; border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--line); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); font-size: 0.92rem; animation: rise-t 0.25s ease-out; }

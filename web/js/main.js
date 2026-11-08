@@ -74,6 +74,9 @@ const S = {
   dawnArmed: null, // the night whose dawn rings the chime (L.dawnCue)
   tabResult: null, // the player's result, kept in the tab title until the tab is looked at again
   lateHint: false, // the hint says tonight is out of reach, with a countdown to the next night
+  actedAt: 0, // when this page last sent an action of its own (every action collects first)
+  holderAskedAt: 0, // when the holder view on screen was asked for
+  cheatOut: null, // the last "Try to cheat it" answer, shown in the Proof drawer
 }
 
 let client
@@ -113,8 +116,12 @@ async function boot() {
     client = new Client()
     client.rpc.onHostChange = (h) => console.info('rpc host', h)
   }
-  client.onTx = () => U.drawerOpen() && U.$('drawer-title').textContent === 'Proof' && openProof()
-  queue = new ActionQueue(client, { onDone, onError, onChange: renderYou })
+  client.onTx = () => redrawProof()
+  queue = new ActionQueue(client, {
+    onDone: (out, item) => ((S.actedAt = Date.now()), onDone(out, item)),
+    onError: (err, item) => ((S.actedAt = Date.now()), onError(err, item)),
+    onChange: renderYou,
+  })
 
   S.canSign = await ed25519Supported()
   // The key lives in this browser only; making it needs no network.
@@ -305,10 +312,19 @@ async function poll() {
   clearTimeout(S.pollTimer)
   try {
     const me = client.identity?.account
+    const askedAt = Date.now()
+    const busy = !!queue?.busy
     const [state, holder, recent] = await Promise.all([client.state(), me ? client.holder(me) : Promise.resolve(null), client.recentThrows().catch(() => S.recent)])
     noteClock(state.now_ms)
     S.state = state
-    if (holder) S.holder = holder
+    if (holder) {
+      // an action of this page's own since the last view collects and says so itself
+      const acted = busy || !!queue?.busy || S.actedAt >= S.holderAskedAt
+      const got = L.collectedForYou(S.holder, holder, state.night, acted)
+      if (got) onCollectedForYou(got)
+      S.holder = holder
+      S.holderAskedAt = askedAt
+    }
     S.recent = recent ?? []
     spotThrows()
     noteTally()
@@ -834,6 +850,8 @@ function onCheat(what) {
   const night = clockNow()
   const build = what === 'future' ? () => L.throwAction(S.cfg.config.min_throw, night + 1) : () => L.kindlingAction(night)
   queue.push({ kind: 'cheat', what, build })
+  S.cheatOut = { pending: true }
+  redrawProof()
   U.toast('Sent. Waiting for the contract’s answer…', '', 3000)
 }
 
@@ -842,7 +860,9 @@ function onDone(out, item) {
   if (item.kind === 'cheat') {
     if (out?.ok) U.toast('That went through, which it should not have. Please report it.', 'warn', 8000)
     else U.toast(`Refused, as it should be. The contract said: “${out?.error ?? 'no'}”`, 'ok', 8000)
-    schedule(100) // client.onTx has already redrawn an open Proof drawer with the new transaction
+    S.cheatOut = { ok: !!out?.ok, error: out?.error ?? null }
+    redrawProof() // with the answer under the buttons; the transaction is already in the list
+    schedule(100)
     return
   }
   if (!out?.ok) {
@@ -861,7 +881,18 @@ function onDone(out, item) {
   schedule(100)
 }
 
+/** Another page collected the player's credit (anyone may): say so, since the Collect box just went. */
+function onCollectedForYou(got) {
+  const dec = S.cfg.config.decimals
+  sound.chime()
+  U.toast(`+${L.fmtEmber(got.amount, dec)} EMBER from night ${got.night} was collected for you: another page did it, as anyone may. It was already in your balance.`, 'ok', 7000)
+}
+
 function onError(err, item) {
+  if (item.kind === 'cheat') {
+    S.cheatOut = null
+    redrawProof()
+  }
   sound.refuse()
   const what = { throw: 'throw', kindling: 'claim', collect: 'collection' }[item.kind] ?? 'action'
   U.toast(err instanceof FriendlyError ? err.message : `That ${what} did not go through. Nothing was lost.`, 'warn', 6000)
@@ -1157,26 +1188,38 @@ window.addEventListener('resize', () => {
 
 // ---- proof --------------------------------------------------------------------------------------
 
+function proofView() {
+  return U.proofHtml({
+    mock: MOCK,
+    deployment: DEPLOYMENT.name,
+    contract: client?.contract ?? CONTRACT,
+    keys: S.keys,
+    codeHash: S.codeHash,
+    expectedHash: MOCK ? null : CODE_HASH,
+    account: client?.identity?.account ?? '–',
+    gasAccount: GAS_ACCOUNT,
+    rpcHost: client?.rpc?.host ?? '–',
+    txs: client?.txs ?? [],
+    explorer: EXPLORER,
+    deployed: S.deployed,
+    owed: S.state ? { amount: L.fmtEmber(S.state.owed, S.cfg.config.decimals), nights: S.state.owed_nights } : null,
+    cheats: { canAct: Boolean(client?.canAct), kindlingTwice: S.model?.kindle.why === 'claimed' },
+    cheatOut: S.cheatOut,
+    lockTx: DEPLOYMENT.lockTx ?? null,
+    labels: BOTS,
+  })
+}
+
+/** An open Proof drawer redrawn in place (its scroll and focus stay). */
+function redrawProof() {
+  if (!U.drawerOpen() || U.$('drawer-title').textContent !== 'Proof') return
+  const cheat = document.activeElement?.dataset?.cheat
+  U.$('drawer-body').innerHTML = proofView()
+  if (cheat) U.$('drawer-body').querySelector(`[data-cheat="${cheat}"]`)?.focus()
+}
+
 async function openProof() {
-  const draw = () =>
-    U.proofHtml({
-      mock: MOCK,
-      deployment: DEPLOYMENT.name,
-      contract: client?.contract ?? CONTRACT,
-      keys: S.keys,
-      codeHash: S.codeHash,
-      expectedHash: MOCK ? null : CODE_HASH,
-      account: client?.identity?.account ?? '–',
-      gasAccount: GAS_ACCOUNT,
-      rpcHost: client?.rpc?.host ?? '–',
-      txs: client?.txs ?? [],
-      explorer: EXPLORER,
-      deployed: S.deployed,
-      owed: S.state ? { amount: L.fmtEmber(S.state.owed, S.cfg.config.decimals), nights: S.state.owed_nights } : null,
-      cheats: { canAct: Boolean(client?.canAct), kindlingTwice: S.model?.kindle.why === 'claimed' },
-      lockTx: DEPLOYMENT.lockTx ?? null,
-    })
-  U.openDrawer('Proof', draw())
+  U.openDrawer('Proof', proofView())
   if (S.keys === null && client) {
     try {
       S.keys = await client.accessKeys()
@@ -1188,7 +1231,7 @@ async function openProof() {
         S.keys = []
       }
     }
-    if (U.drawerOpen()) U.$('drawer-body').innerHTML = draw()
+    redrawProof()
   }
 }
 

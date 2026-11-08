@@ -357,6 +357,24 @@ test('late arrival: tonight out of reach says so and points to the next night, f
   assert.deepEqual(at({ woods: [0n, 0n, 0n, 0n], target: E(400) }), { need: E(400), comes: 0n, left: 39_000 })
 })
 
+test('collected for you: credit that went without an action of this page is reported once, with its night', () => {
+  const owed = holder({ wood_night: 2, wood: E(50).toString(), pending: E('48.5').toString(), balance: E('248.5').toString() })
+  const after = holder({ wood_night: null, wood: '0', pending: '0', balance: E('248.5').toString(), credited: E('248.5').toString() })
+  // tonight is night 3; the credit is from night 2 and another page collected it
+  assert.deepEqual(L.collectedForYou(owed, after, 3), { night: 2, amount: E('48.5') })
+  // the page's own action collects first and says so itself
+  assert.equal(L.collectedForYou(owed, after, 3, true), null)
+  // still owed, or nothing owed before
+  assert.equal(L.collectedForYou(owed, owed, 3), null)
+  assert.equal(L.collectedForYou(after, after, 3), null)
+  // a throw from another tab of this browser collected it: wood on tonight, not someone else's doing
+  assert.equal(L.collectedForYou(owed, holder({ wood_night: 3, wood: E(25).toString(), pending: '0' }), 3), null)
+  // wood on the open night is not credit yet; no view, no claim
+  assert.equal(L.collectedForYou(holder({ wood_night: 3, wood: E(50).toString(), pending: E(50).toString() }), after, 3), null)
+  assert.equal(L.collectedForYou(null, after, 3), null)
+  assert.equal(L.collectedForYou(owed, null, 3), null)
+})
+
 test('ready to collect: the credit is said to be in the balance already, which counts it', () => {
   const h = holder({ balance: E(620).toString(), credited: E(500).toString(), pending: E(120).toString(), wood_night: 2, wood: E(100).toString() })
   const m = L.deriveModel({ cfg, state: state(), holder: h, nowMs: 1_750_000 })

@@ -1,6 +1,6 @@
 // DOM helpers: the strip of last nights, the supply chart, records, the proof drawer and the
 // "How it works" text. Everything that comes from the chain goes in through textContent or esc().
-import { fmtDuration, fmtEmber, fmtFactor, fmtFixed, fmtInt, fmtPct, fmtWhole, toWhole } from './logic.js'
+import { fmtDuration, fmtEmber, fmtFactor, fmtFixed, fmtInt, fmtPct, fmtWhole, nameOf, toWhole } from './logic.js'
 
 export const $ = (id) => document.getElementById(id)
 const SVG = 'http://www.w3.org/2000/svg'
@@ -305,7 +305,30 @@ export function ledgerCheckHtml(c, { decimals, symbol }) {
 
 // ---- proof drawer -------------------------------------------------------------------------------
 
-export function proofHtml({ mock, deployment, contract, keys, codeHash, expectedHash = null, account, gasAccount, rpcHost, txs, explorer, deployed, owed, cheats = null, lockTx = null }) {
+const ACTION_WORDS = { throw: 'throw', claim_kindling: 'kindling', collect: 'collect', transfer: 'transfer' }
+
+/**
+ * What one transaction of this tab was, in words: "act · throw", "collect for demo-bot-late", and
+ * whether the contract refused it (an act whose outcome said no is a transaction that went through).
+ * Returns { kind, mark, why } with `mark` 'refused', 'failed' or null.
+ */
+export function txLabel(t, me, labels = {}) {
+  let kind = t.kind
+  if (t.kind === 'act' && ACTION_WORDS[t.action]) kind = `act · ${ACTION_WORDS[t.action]}`
+  if (t.kind === 'collect' && t.for && t.for !== me) kind = `collect for ${nameOf(t.for, me, labels)}`
+  const mark = t.failure ? 'failed' : t.refused != null ? 'refused' : null
+  return { kind, mark, why: mark === 'refused' ? t.refused : null }
+}
+
+function txHtml(t, { mock, explorer, account, labels }) {
+  const l = txLabel(t, account, labels)
+  const hash = mock ? `<code>${esc(t.hash.slice(0, 12))}…</code>` : `<a href="${esc(explorer)}/txns/${esc(t.hash)}" target="_blank" rel="noopener"><code>${esc(t.hash.slice(0, 12))}…</code></a>`
+  const mark = l.mark ? ` <b class="bad">${l.mark}</b>` : ''
+  const why = l.why ? `<span class="why">${esc(l.why)}</span>` : ''
+  return `<li><span class="kind">${esc(l.kind)}${mark}</span>${hash}<span class="gas">${(t.gas / 1e12).toFixed(1)} Tgas</span>${why}</li>`
+}
+
+export function proofHtml({ mock, deployment, contract, keys, codeHash, expectedHash = null, account, gasAccount, rpcHost, txs, explorer, deployed, owed, cheats = null, cheatOut = null, lockTx = null, labels = {} }) {
   const link = (path, text) => (mock ? `<code>${esc(text)}</code>` : `<a href="${esc(explorer)}/${path}" target="_blank" rel="noopener">${esc(text)}</a>`)
   const keyLine =
     keys == null
@@ -324,14 +347,7 @@ export function proofHtml({ mock, deployment, contract, keys, codeHash, expected
     : owed.nights === 0
       ? '<span>nothing <span class="muted">· every thrower of a settled night has collected</span></span>'
       : `<span>${esc(owed.amount)} EMBER <span class="muted">to throwers of ${owed.nights} settled night${owed.nights === 1 ? '' : 's'}, until they collect</span></span>`
-  const rows = txs.length
-    ? txs
-        .map(
-          (t) =>
-            `<li><span class="kind">${esc(t.kind)}</span>${mock ? `<code>${esc(t.hash.slice(0, 12))}…</code>` : `<a href="${esc(explorer)}/txns/${esc(t.hash)}" target="_blank" rel="noopener"><code>${esc(t.hash.slice(0, 12))}…</code></a>`}${t.failure ? ' <b class="bad">failed</b>' : ''}<span class="gas">${(t.gas / 1e12).toFixed(1)} Tgas</span></li>`,
-        )
-        .join('')
-    : '<li class="muted">No transactions from this tab yet.</li>'
+  const rows = txs.length ? txs.map((t) => txHtml(t, { mock, explorer, account, labels })).join('') : '<li class="muted">No transactions from this tab yet.</li>'
   return `
     ${mock ? '<p class="mock-note">Mock mode: made-up data in this tab. Nothing below is on chain.</p>' : ''}
     <p>Everything on this page is read from NEAR ${mock ? '(here: a stand-in)' : 'testnet'}. Your moves are transactions signed by a key this browser made; a public gas pool pays the fees. Its keys may only call <code>act</code>, <code>settle</code> and <code>collect</code>.</p>
@@ -345,9 +361,10 @@ export function proofHtml({ mock, deployment, contract, keys, codeHash, expected
       <li><span>RPC</span><code>${esc(rpcHost)}</code></li>
       ${owed ? `<li><span>Owed</span>${owedLine}</li>` : ''}
     </ul>
-    ${cheatHtml(cheats, mock, explorer)}
+    ${cheatHtml(cheats, mock, explorer, cheatOut)}
     <h3>Your transactions</h3>
     <ul class="tx-list">${rows}</ul>
+    ${txs.some((t) => t.kind === 'collect' && t.for && t.for !== account) ? '<p class="muted">A <i>collect for</i> is one this page relayed for another thrower of a settled night: anyone may collect for anyone, and it moves EMBER only to its owner.</p>' : ''}
     <h3>Check the keys yourself</h3>
     <pre class="rpc">{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"${esc(contract)}"}}</pre>
     <p class="muted">Send it to any NEAR testnet RPC: <code>"keys":[]</code> means no one, not even its author, can change the contract.</p>`
@@ -361,16 +378,24 @@ const REPLAY_TX = 'EFxtQKPvpQbXzA63MSiXBPgKa4B5rVVuFCtZRHteVJv3'
  * contract refuse it. `cheats` is {canAct, kindlingTwice}; kindling twice only makes sense after a
  * first claim (before it, the claim is allowed).
  */
-function cheatHtml(cheats, mock, explorer) {
+function cheatHtml(cheats, mock, explorer, out = null) {
   if (mock || !cheats) return ''
   const off = (on) => (on ? '' : ' disabled')
+  const said = !out
+    ? ''
+    : out.pending
+      ? '<p class="cheat-out" role="status">Sent. Waiting for the contract’s answer…</p>'
+      : out.ok
+        ? '<p class="cheat-out bad" role="status">That went through, which it should not have. Please report it.</p>'
+        : `<p class="cheat-out good" role="status">Refused, as it should be. The contract said: “${esc(out.error ?? 'no')}”</p>`
   return `
     <h3>Try to cheat it</h3>
-    <p class="muted">Each button sends a real transaction that breaks a rule. Watch the contract refuse it; the refusal shows up under your transactions.</p>
+    <p class="muted">Each button sends a real transaction that breaks a rule. Watch the contract refuse it: its answer shows under the buttons, and the transaction is marked <i>refused</i> under your transactions.</p>
     <div class="cheats">
       <button type="button" class="cheat" data-cheat="future"${off(cheats.canAct)}>Throw wood on tomorrow’s fire</button>
       <button type="button" class="cheat" data-cheat="kindling"${off(cheats.canAct && cheats.kindlingTwice)}>Claim kindling a second time</button>
     </div>
+    ${said}
     ${cheats.kindlingTwice ? '' : '<p class="muted">The second claim unlocks after your first kindling.</p>'}
     <p class="muted">Sending the same signed action twice was refused on the staging contract, which runs the same code: <a href="${esc(explorer)}/txns/${REPLAY_TX}" target="_blank" rel="noopener"><code>nonce already used</code></a>.</p>`
 }
