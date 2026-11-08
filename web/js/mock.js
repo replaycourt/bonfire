@@ -4,7 +4,7 @@
 // the same rounding and the same views), the demo bots of sim/params.json and a few made-up players
 // throwing on a schedule, and a client with the same methods as the real one. Nothing here touches
 // the network. It exists so every state of the page can be seen without a deployment:
-// `&scene=first|newcomer|early|close|lit|smoke|cold|live`, `&night=<seconds>`.
+// `&scene=first|newcomer|early|close|late|collected|lit|smoke|cold|live`, `&night=<seconds>`.
 import { BP, big, clockNight, hashSeed, windowAt, windowWeights } from './logic.js'
 
 const DEC = 18
@@ -574,6 +574,7 @@ export class MockWorld {
     this.planned = new Map() // night -> [{t, account, amount}] sorted by t
     this.done = new Map() // night -> index of the next unplayed throw
     this.overrides = new Map() // night -> plan (presets)
+    this.collects = [] // [{t, account}]: another page collecting for an account (presets)
   }
 
   plan(n) {
@@ -601,6 +602,10 @@ export class MockWorld {
   /** Plays every scheduled throw up to `now`. Each throw first settles ended nights, as a call would. */
   advance(now) {
     const e = this.engine
+    while (this.collects.length && this.collects[0].t <= now) {
+      const c = this.collects.shift()
+      e.collect(c.account, c.t)
+    }
     for (let guard = 0; guard < 100_000; guard++) {
       const ev = this.nextEvent(now)
       if (!ev) break
@@ -636,9 +641,10 @@ export class MockWorld {
 // ---- presets for screenshots ----------------------------------------------------------------------
 
 /**
- * scene: first (an empty first visit), newcomer (a first visit to a running world, no EMBER yet), early, close (near the target, late in the night), lit /
- * smoke / cold (a night that just ended, so the page settles it and plays the outcome), live (a
- * running world, the default).
+ * scene: first (an empty first visit), newcomer (a first visit to a running world, no EMBER yet), early, close (near the target, late in the night), late
+ * (a newcomer arriving in the last quarter, half the target still missing), collected (the player is owed last
+ * night's wood, and another page collects it a few seconds in), lit / smoke / cold (a night that just ended, so the
+ * page settles it and plays the outcome), live (a running world, the default).
  */
 export function buildMock({ scene = 'live', nightMs = 300_000, now = Date.now(), me }) {
   const P = {
@@ -646,6 +652,8 @@ export function buildMock({ scene = 'live', nightMs = 300_000, now = Date.now(),
     newcomer: { nights: 30, at: 0.22, pct: 0.3, crowd: 4, mine: null },
     early: { nights: 26, at: 0.12, pct: 0.22, crowd: 3, mine: { fund: 460, wood: 0 } },
     close: { nights: 33, at: 0.86, pct: 0.9, crowd: 8, mine: { fund: 520, wood: 120 } },
+    late: { nights: 30, at: 0.88, pct: 0.5, crowd: 4, mine: null },
+    collected: { nights: 30, at: 0.15, pct: 0.25, crowd: 3, mine: { fund: 480, wood: 0 }, owed: true, helpAfterMs: 9000 },
     lit: { nights: 39, at: 1.004, pct: 1.16, crowd: 9, mine: { fund: 600, wood: 180 } },
     smoke: { nights: 39, at: 1.004, pct: 0.64, crowd: 5, mine: { fund: 600, wood: 90 } },
     cold: { nights: 39, at: 1.004, pct: 0, crowd: 0, mine: { fund: 600, wood: 0 } },
@@ -677,8 +685,10 @@ export function buildMock({ scene = 'live', nightMs = 300_000, now = Date.now(),
   }
   world.advance(start - 1)
   e.catchUp(start + 1)
-  // The player's credit from the last night is collected, as the next action would.
-  if (P.mine) e.credit(me)
+  // The player's credit from the last night is collected, as the next action would; or, for
+  // `collected`, left owed until another page collects it.
+  if (P.mine && !P.owed) e.credit(me)
+  if (P.helpAfterMs) world.collects.push({ t: now + P.helpAfterMs, account: me })
   if (P.pct !== null) {
     // The open night: a crafted pile.
     const target = e.target

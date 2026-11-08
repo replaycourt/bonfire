@@ -177,6 +177,25 @@ test('presets put the page in the state they promise', () => {
   assert.ok(close.historyView().length >= 30)
   assert.ok(close.recentView().some((t) => t.account === me))
 
+  // late: a newcomer in the last quarter, half the target missing
+  const late = buildMock({ scene: 'late', now, me }).engine
+  const ls = late.stateView(now)
+  assert.equal(ls.window_now, 3)
+  assert.ok(BigInt(ls.pile) * 2n <= BigInt(ls.target) + 10n ** 18n, 'about half the target on the pile')
+  assert.equal(late.holderView(me).may_take_kindling, true)
+
+  // collected: the player is owed last night's wood until another page collects it, 9 s in
+  const cw = buildMock({ scene: 'collected', now, me })
+  const owed = cw.engine.holderView(me)
+  assert.ok(BigInt(owed.pending) > 0n && owed.wood_night === cw.engine.night - 1, 'owed for last night')
+  cw.advance(now + 8000)
+  assert.equal(cw.engine.holderView(me).pending, owed.pending)
+  cw.advance(now + 9500)
+  const after = cw.engine.holderView(me)
+  assert.equal(after.pending, '0')
+  assert.equal(after.balance, owed.balance, 'the credit was already in the balance')
+  conserved(cw.engine)
+
   for (const [scene, outcome] of [['lit', 'LIT'], ['smoke', 'SMOKED'], ['cold', 'COLD']]) {
     const w = buildMock({ scene, now, me })
     const s = w.engine.stateView(now)
