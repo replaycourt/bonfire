@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/shots/night.png" alt="The Bonfire page mid-night: the fire on the pile, the countdown to dawn, the Tonight card with the pile against the target, and the player's wood" width="760"></p>
+<p align="center"><img src="docs/shots/night.png" alt="The Bonfire page mid-night: the fire on the pile against its target, the countdown to dawn, the Tonight card and Get kindling" width="760"></p>
 
 # Bonfire: a memecoin you light together
 
@@ -22,9 +22,9 @@ The track asks for a memecoin whose meme does something, with every rule fixed a
 
 <table>
 <tr>
-<td width="38%"><img src="docs/shots/dawn.png" alt="The dawn banner over the fire: the night's outcome, what the throwers got, the firestarter and the last log"></td>
-<td width="38%"><img src="docs/shots/story.png" alt="The strip of the last nights, the supply chart, the records and the coin's face drawn by the contract"></td>
-<td width="24%"><img src="docs/shots/phone.png" alt="The page on a phone: the fire, the countdown and the Tonight card"></td>
+<td width="38%"><img src="docs/shots/dawn.png" alt="Dawn of a lit night: the stamp LIT ×2 in the sky, the fire roaring and the figures around it cheering"></td>
+<td width="38%"><img src="docs/shots/story.png" alt="EMBER minted and burned night by night, the records and the coin's face drawn by the contract"></td>
+<td width="24%"><img src="docs/shots/phone.png" alt="The page on a phone at dawn: the banner under the countdown, the fire caught, and Get kindling"></td>
 </tr>
 <tr>
 <td><sub><b>Dawn</b>: the night settles on chain and the banner says how it ended, who lit it and who closed the gap.</sub></td>
