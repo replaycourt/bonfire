@@ -401,6 +401,7 @@ export function deriveModel({ cfg, state, holder, nowMs }) {
     windows: win,
     lateLitBp: c.late_lit_bp,
     earlyMaxBp: c.early_max_bp,
+    smokeBp: c.smoke_bp,
     throwers: state.throwers,
     firestarter: state.firestarter ?? null,
     lastLog: state.last_log ?? null,
@@ -455,16 +456,51 @@ export function previewFromEstimate(m, est, cfg) {
   const myAfter = weightOf(after, mine)
   const before = same ? expectedReward({ pool: m.pool, myWeight: m.myWeight, totalWeight: m.windows.totalWeight }) : 0n
   const reward = expectedReward({ pool: m.pool, myWeight: myAfter, totalWeight: total })
-  return { amount: a, window: k, weight: big(est.weight), factorBp: est.factor_bp, reward, gain: reward > before ? reward - before : 0n }
+  return { amount: a, window: k, night: est.night, weight: big(est.weight), factorBp: est.factor_bp, reward, gain: reward > before ? reward - before : 0n }
+}
+
+/**
+ * Whether tonight can still realistically catch, from numbers the page already shows. Only in the
+ * night's last quarter (less time than that, and a pace read off the night so far, says too little):
+ * tonight is out of reach when the wood still needed is more than everything the player holds plus
+ * what tonight's pace so far would bring by dawn. The pace is the pile over the time gone; most wood
+ * lands early, where it counts most, so for the last quarter it is a generous guess.
+ * Returns null while the night can catch, else { need, comes, left } in base units and ms.
+ */
+export function outOfReach(m) {
+  if (!m || m.due || m.reached || m.gap <= 0n) return null
+  const left = Math.max(0, m.msLeft)
+  const gone = m.nightMs - left
+  if (left <= 0 || left * 4 > m.nightMs || gone <= 0) return null
+  const comes = (big(m.pile) * BigInt(Math.round(left))) / BigInt(Math.round(gone))
+  if (m.gap <= big(m.balance) + comes) return null
+  return { need: m.gap, comes, left }
+}
+
+/** The hint when tonight is out of reach: say so, and point to the next night instead of a reward. */
+export function lateHint(m, late) {
+  const unit = pow10(m.dec)
+  const need = fmtInt((late.need + unit - 1n) / unit)
+  const comes = fmtInt(late.comes / unit)
+  const when = fmtCountdown(late.left)
+  const mine = m.balance > 0n ? `, and you hold ${fmtEmber(m.balance, m.dec)}` : ''
+  return `Tonight is out of reach: it needs ${need} more wood in ${when}; tonight's pace brings about ${comes}${mine}. Wood thrown now most likely smokes, and ${fmtPct(m.smokeBp)} of it burns. The next night starts in ${when}, with wood counting ${fmtFactor(m.earlyMaxBp)} on an empty pile.`
 }
 
 /**
  * The hint under the throw buttons, from previewFromEstimate. When the player already holds all of
  * tonight's weight, more wood cannot grow its share of the mint, so the hint says what it does do.
+ * The throw's own factor is its average over its wood, which lifts the pile as it lands, so it can be
+ * lower than the "Wood counts now" factor (one EMBER thrown now); the hint says why when they differ.
+ * Late in a night that can no longer catch, the hint says that instead (lateHint).
  */
 export function throwHint(m, amount, p) {
+  const late = outOfReach(m)
+  if (late) return lateHint(m, late)
   const f = (u) => fmtEmber(u, m.dec)
-  const head = `Throw ${f(amount)} now: it counts ${fmtFactor(p.factorBp)}`
+  const now = m.windows?.nowFactorBp
+  const why = now != null && (p.night == null || p.night === m.night) && fmtFactor(now) !== fmtFactor(p.factorBp) ? ` (the ${fmtFactor(now)} of “Wood counts now” is for a single EMBER; your own wood raises the pile)` : ''
+  const head = `Throw ${f(amount)} now: it counts ${fmtFactor(p.factorBp)}${why}`
   if (p.gain > 0n) return `${head}, about +${f(p.gain)} new ${m.symbol} if the fire catches.`
   if (m.myWeight > 0n && m.myWeight >= m.windows.totalWeight) return `${head}. Tonight's new ${m.symbol} is all yours so far; more wood helps the fire catch.`
   return `${head}. Too little to change your share of the new ${m.symbol}.`
@@ -506,9 +542,10 @@ export function introSteps(m, pendingWood = 0n) {
   const has = threw || m.balance > 0n
   const at = !has ? 1 : !threw ? 2 : 3
   const kindle = !has && !m.kindle.can && m.kindle.why === 'gone' ? 'handed out tonight; the next claim opens at dawn' : 'free, no wallet, no sign-up'
+  const late = !threw && outOfReach(m)
   const steps = [
     { title: 'Get kindling', sub: kindle },
-    { title: 'Throw before dawn', sub: 'early wood counts most' },
+    { title: 'Throw before dawn', sub: late ? `tonight is out of reach; the next night starts in ${fmtCountdown(late.left)}` : 'early wood counts most' },
     { title: 'See it catch at dawn', sub: m.due ? 'dawn is breaking' : `dawn in ${fmtCountdown(m.msLeft)}` },
   ].map((s, i) => ({ ...s, n: i + 1, state: i + 1 < at ? 'done' : i + 1 === at ? 'now' : 'next' }))
   return { at, steps }

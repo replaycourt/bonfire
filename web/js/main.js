@@ -73,6 +73,7 @@ const S = {
   dawn: null, // the player's own dawn line (L.dawnLine), while they have wood tonight
   dawnArmed: null, // the night whose dawn rings the chime (L.dawnCue)
   tabResult: null, // the player's result, kept in the tab title until the tab is looked at again
+  lateHint: false, // the hint says tonight is out of reach, with a countdown to the next night
 }
 
 let client
@@ -947,7 +948,9 @@ function render() {
   U.setText('hearth', L.fmtEmber(m.hearth, m.dec, { compact: true }))
   U.setText('firestarter', m.firestarter ? L.nameOf(m.firestarter, me, BOTS) : 'nobody yet')
   U.$('firestarter').classList.toggle('muted', !m.firestarter)
-  U.setText('last-log', m.lastLog ? `${L.nameOf(m.lastLog.account, me, BOTS)} · ${f(m.lastLog.amount)}` : m.reached ? '–' : 'not yet')
+  // until someone reaches the target, the line says what the title is for, not "not yet" (which read
+  // like the player's own log had not landed)
+  U.setText('last-log', m.lastLog ? `${L.nameOf(m.lastLog.account, me, BOTS)} · ${f(m.lastLog.amount)}` : m.reached ? '–' : `whoever reaches ${w(m.target)}`)
   U.$('last-log').classList.toggle('muted', !m.lastLog)
   U.setText('kindling-left', m.kindlingLeft > 0 ? `Kindling left tonight: ${m.kindlingLeft} of ${m.kindlingPerNight}` : 'No kindling left tonight')
   const risk = L.streakRisk(m)
@@ -983,6 +986,7 @@ function tickClock() {
     S.windowSeen = win.current
     refreshEstimate()
   }
+  if (S.lateHint) hint()
   renderIntro()
   renderDawn(now)
 }
@@ -1099,10 +1103,14 @@ function hint() {
   for (const [i, b] of [...U.$('throw-row').children].entries()) b.classList.toggle('selected', !!c && S.choices[i] === c && !!m?.canThrow)
   if (!m || !c || !m.canThrow) {
     el.textContent = ''
+    S.lateHint = false
     return
   }
   const est = S.estimate?.est && L.big(S.estimate.est.amount) === c.amount ? S.estimate.est : L.estimateLocal({ cfg: S.cfg, state: S.state, amount: c.amount, nowMs: chainNow() })
-  el.textContent = L.throwHint(m, c.amount, L.previewFromEstimate(m, est, S.cfg))
+  // the clock between polls, so a hint that counts down to the next night ticks with the clock
+  const now = { ...m, msLeft: Math.max(0, m.end - chainNow()) }
+  S.lateHint = !!L.outOfReach(now)
+  U.setText('throw-hint', L.throwHint(now, c.amount, L.previewFromEstimate(now, est, S.cfg)))
 }
 
 function showNote(text) {

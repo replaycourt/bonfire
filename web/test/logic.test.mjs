@@ -291,7 +291,8 @@ test('throw hint: the factor and the gain; when the player holds all the weight,
   // nobody on tonight's pile yet but others: a throw gains a share
   const m = L.deriveModel({ cfg, state: state(), holder: holder(), nowMs: 1_700_000 })
   const p = L.previewFromEstimate(m, L.estimateLocal({ cfg, state: state(), amount: E(50), nowMs: 1_700_000 }), cfg)
-  assert.equal(L.throwHint(m, E(50), p), `Throw 50 now: it counts ${L.fmtFactor(p.factorBp)}, about +${L.fmtEmber(p.gain, D)} new EMBER if the fire catches.`)
+  // the throw lifts its own window: ×1.6 on average, under the ×1.7 "Wood counts now" (one EMBER)
+  assert.equal(L.throwHint(m, E(50), p), `Throw 50 now: it counts ×1.6 (the ×1.7 of “Wood counts now” is for a single EMBER; your own wood raises the pile), about +${L.fmtEmber(p.gain, D)} new EMBER if the fire catches.`)
   // the player alone on the pile: the whole mint is already its own, so the gain is 0
   const woods = [E(50), 0n, 0n, 0n]
   const ws = L.windowWeights(woods, E(400), 40_000, 2_500)
@@ -301,10 +302,59 @@ test('throw hint: the factor and the gain; when the player holds all the weight,
   const m2 = L.deriveModel({ cfg, state: st, holder: alone, nowMs: 1_700_000 })
   const p2 = L.previewFromEstimate(m2, L.estimateLocal({ cfg, state: st, amount: E(25), nowMs: 1_700_000 }), cfg)
   assert.equal(p2.gain, 0n)
-  assert.equal(L.throwHint(m2, E(25), p2), `Throw 25 now: it counts ${L.fmtFactor(p2.factorBp)}. Tonight's new EMBER is all yours so far; more wood helps the fire catch.`)
+  assert.equal(L.throwHint(m2, E(25), p2), `Throw 25 now: it counts ×3.5 (the ×3.6 of “Wood counts now” is for a single EMBER; your own wood raises the pile). Tonight's new EMBER is all yours so far; more wood helps the fire catch.`)
   assert.ok(!/\+0 new/.test(L.throwHint(m2, E(25), p2)))
   // a gain that rounds to nothing for someone who is not alone
-  assert.equal(L.throwHint(m, 1n, { ...p, gain: 0n }), `Throw 0.000000000000000001 now: it counts ${L.fmtFactor(p.factorBp)}. Too little to change your share of the new EMBER.`)
+  assert.equal(L.throwHint(m, 1n, { ...p, factorBp: m.windows.nowFactorBp, gain: 0n }), `Throw 0.000000000000000001 now: it counts ×1.7. Too little to change your share of the new EMBER.`)
+})
+
+test('throw hint: the throw factor and "Wood counts now" agree, or the hint says why they differ', () => {
+  const m = L.deriveModel({ cfg, state: state(), holder: holder(), nowMs: 1_700_000 })
+  const hint = (a) => L.throwHint(m, E(a), L.previewFromEstimate(m, L.estimateLocal({ cfg, state: state(), amount: E(a), nowMs: 1_700_000 }), cfg))
+  // a small throw counts what the card shows: one factor, no explanation
+  assert.equal(L.fmtFactor(m.windows.nowFactorBp), '×1.7')
+  assert.match(hint(2), /^Throw 2 now: it counts ×1\.7, about \+/)
+  assert.doesNotMatch(hint(2), /is for a single EMBER/)
+  // a big one lifts the pile under itself: a lower factor, and the reason next to it
+  assert.match(hint(100), /^Throw 100 now: it counts ×1\.4 \(the ×1\.7 of “Wood counts now” is for a single EMBER; your own wood raises the pile\), about \+/)
+  // an estimate for the next night (dawn came between two polls) is not compared with tonight's factor
+  const next = L.previewFromEstimate(m, { night: 4, window: 0, amount: E(50).toString(), weight: E(200).toString(), factor_bp: 40_000 }, cfg)
+  assert.doesNotMatch(L.throwHint(m, E(50), next), /is for a single EMBER/)
+})
+
+test('late arrival: tonight out of reach says so and points to the next night, from the numbers on the page', () => {
+  // the juror's night: 0:39 before dawn, 351 of 639 on the pile (288 missing), 200 EMBER in hand
+  const woods = [E(200), E(80), E(51), E(20)]
+  const st = state(woods, { target: E(639) })
+  const now = 1_900_000 - 39_000
+  const h = holder({ balance: E(200).toString(), credited: E(200).toString() })
+  const m = L.deriveModel({ cfg, state: st, holder: h, nowMs: now })
+  assert.equal(m.gap, E(288))
+  const late = L.outOfReach(m)
+  // 351 wood in 261 s: at that pace about 52 more by dawn; with the player's 200 still short of 288
+  assert.deepEqual(late, { need: E(288), comes: (E(351) * 39_000n) / 261_000n, left: 39_000 })
+  const text = L.throwHint(m, E(50), L.previewFromEstimate(m, L.estimateLocal({ cfg, state: st, amount: E(50), nowMs: now }), cfg))
+  assert.equal(text, "Tonight is out of reach: it needs 288 more wood in 0:39; tonight's pace brings about 52, and you hold 200. Wood thrown now most likely smokes, and 3 % of it burns. The next night starts in 0:39, with wood counting ×4 on an empty pile.")
+  assert.doesNotMatch(text, /if the fire catches/)
+  // the first visit's second step says it too, until the player has thrown
+  assert.equal(L.introSteps(m).steps[1].sub, 'tonight is out of reach; the next night starts in 0:39')
+  assert.equal(L.introSteps(m, E(50)).steps[1].sub, 'early wood counts most')
+  // the throw itself stays possible
+  assert.equal(m.canThrow, true)
+
+  const at = (over = {}, hOver = {}, t = now) => L.outOfReach(L.deriveModel({ cfg, state: state(over.woods ?? woods, { target: over.target ?? E(639) }), holder: holder({ balance: E(200).toString(), ...hOver }), nowMs: t }))
+  // with more time than the last quarter, the page does not guess: 76 s before dawn, a target of 800
+  assert.equal(at({ target: E(800) }, {}, 1_900_000 - 76_000), null)
+  assert.notEqual(at({ target: E(800) }, {}, 1_900_000 - 75_000), null)
+  // enough in hand to close the gap with tonight's pace: it can still catch
+  assert.equal(at({}, { balance: E(240).toString() }), null)
+  // a smaller gap that the pace and the player's wood can close
+  assert.equal(at({ target: E(560) }), null)
+  // a pile at its target, a night already due: nothing to say
+  assert.equal(at({ target: E(351) }), null)
+  assert.equal(at({}, {}, 1_900_000), null)
+  // an empty pile late in the night with less in hand than the target: out of reach, nothing comes at no pace
+  assert.deepEqual(at({ woods: [0n, 0n, 0n, 0n], target: E(400) }), { need: E(400), comes: 0n, left: 39_000 })
 })
 
 test('ready to collect: the credit is said to be in the balance already, which counts it', () => {
