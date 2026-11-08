@@ -1044,12 +1044,23 @@ export class Scene {
       const k = (this.t - f.t0) / f.life
       ctx.save()
       ctx.globalAlpha = 1 - k * k
-      ctx.font = `800 ${Math.round(15 * Math.max(0.9, u))}px ${FONT}`
+      const size = Math.round(15 * Math.max(0.9, u))
+      ctx.font = `800 ${size}px ${FONT}`
       ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      const y = f.y - k * 40 * u
+      // a dark pill behind the words, so they stay readable over the bright flames
+      const w = ctx.measureText(f.text).width + size * 1.4
+      const h = size * 1.9
+      ctx.fillStyle = 'rgba(26, 14, 22, 0.72)'
+      ctx.beginPath()
+      if (ctx.roundRect) ctx.roundRect(f.x - w / 2, y - h / 2, w, h, h / 2)
+      else ctx.rect(f.x - w / 2, y - h / 2, w, h)
+      ctx.fill()
       ctx.fillStyle = '#ffe9b8'
-      ctx.shadowColor = 'rgba(255,120,40,0.8)'
-      ctx.shadowBlur = 10
-      ctx.fillText(f.text, f.x, f.y - k * 40 * u)
+      ctx.shadowColor = 'rgba(255,120,40,0.6)'
+      ctx.shadowBlur = 8
+      ctx.fillText(f.text, f.x, y)
       ctx.restore()
     }
   }
