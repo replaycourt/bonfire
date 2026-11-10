@@ -2,6 +2,8 @@
 
 # Bonfire: a memecoin you light together
 
+*Bonfire by replaycourt: token EMBER on the contract `bonfire-coin.testnet`, launched and locked on 2026-11-06; repository https://github.com/replaycourt/bonfire.*
+
 [![CI](https://github.com/replaycourt/bonfire/actions/workflows/ci.yml/badge.svg)](https://github.com/replaycourt/bonfire/actions/workflows/ci.yml)
 
 The track asks for a memecoin whose meme does something, with every rule fixed at launch. Bonfire gives the holders of EMBER one shared job a night:
